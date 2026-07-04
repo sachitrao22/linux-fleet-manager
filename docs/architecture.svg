@@ -1,0 +1,113 @@
+<svg width="680" viewBox="0 0 680 580" xmlns="http://www.w3.org/2000/svg" role="img" font-family="Arial, Helvetica, sans-serif">
+  <title>Linux Fleet Manager — Architecture</title>
+  <desc>Three-layer architecture: React dashboard, FastAPI control plane, and Linux edge devices with dual-mode monitoring.</desc>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- Band backgrounds -->
+  <rect x="44" y="24"  width="592" height="90"  rx="12" fill="#E1F5EE" opacity="0.6"/>
+  <rect x="44" y="134" width="592" height="200" rx="12" fill="#EEEDFE" opacity="0.4"/>
+  <rect x="44" y="354" width="592" height="168" rx="12" fill="#E6F1FB" opacity="0.4"/>
+
+  <!-- Band labels -->
+  <text font-size="11" fill="#888780" text-anchor="middle" transform="rotate(-90 32 69)"  x="32" y="73">Dashboard</text>
+  <text font-size="11" fill="#888780" text-anchor="middle" transform="rotate(-90 32 234)" x="32" y="238">Control plane</text>
+  <text font-size="11" fill="#888780" text-anchor="middle" transform="rotate(-90 32 438)" x="32" y="442">Edge devices</text>
+
+  <!-- DASHBOARD -->
+  <rect x="68"  y="40" width="148" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#085041" text-anchor="middle" x="142" y="68">Fleet dashboard</text>
+  <text font-size="11" fill="#0F6E56" text-anchor="middle" x="142" y="86">React + Recharts</text>
+
+  <rect x="266" y="40" width="148" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#085041" text-anchor="middle" x="340" y="68">Cost calculator</text>
+  <text font-size="11" fill="#0F6E56" text-anchor="middle" x="340" y="86">CloudWatch vs self-hosted</text>
+
+  <rect x="464" y="40" width="148" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#085041" text-anchor="middle" x="538" y="68">Command history</text>
+  <text font-size="11" fill="#0F6E56" text-anchor="middle" x="538" y="86">Audit log viewer</text>
+
+  <!-- Dashboard arrows -->
+  <path d="M142,96 L142,114 L300,114 L300,154" fill="none" stroke="#0F6E56" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M340,96 L340,154"                   fill="none" stroke="#0F6E56" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M538,96 L538,114 L372,114 L372,154" fill="none" stroke="#0F6E56" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- CP ROW 1 -->
+  <rect x="58"  y="154" width="148" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#4A1B0C" text-anchor="middle" x="132" y="182">SSH collector</text>
+  <text font-size="11" fill="#993C1D" text-anchor="middle" x="132" y="200">Paramiko SSH</text>
+
+  <line x1="206" y1="182" x2="236" y2="182" fill="none" stroke="#444441" stroke-width="1" marker-end="url(#arr)"/>
+
+  <rect x="236" y="154" width="200" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#26215C" text-anchor="middle" x="336" y="182">FastAPI control plane</text>
+  <text font-size="11" fill="#534AB7" text-anchor="middle" x="336" y="200">WebSocket + REST</text>
+
+  <!-- FastAPI to row 2 -->
+  <path d="M286,210 L286,234 L132,234 L132,254" fill="none" stroke="#888780" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M336,210 L336,254"                   fill="none" stroke="#888780" stroke-width="1" marker-end="url(#arr)"/>
+  <path d="M386,210 L386,234 L506,234 L506,254" fill="none" stroke="#888780" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- CP ROW 2 -->
+  <rect x="58"  y="254" width="148" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#4A1B0C" text-anchor="middle" x="132" y="282">Auth service</text>
+  <text font-size="11" fill="#993C1D" text-anchor="middle" x="132" y="300">JWT + RBAC</text>
+
+  <rect x="240" y="254" width="168" height="56" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#412402" text-anchor="middle" x="324" y="282">Postgres</text>
+  <text font-size="11" fill="#BA7517" text-anchor="middle" x="324" y="300">Device registry + metrics</text>
+
+  <rect x="432" y="254" width="148" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#4A1B0C" text-anchor="middle" x="506" y="282">Alert engine</text>
+  <text font-size="11" fill="#993C1D" text-anchor="middle" x="506" y="300">Threshold alerts</text>
+
+  <!-- Edge separator -->
+  <line x1="326" y1="358" x2="326" y2="516" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 3"/>
+
+  <!-- Mode labels -->
+  <text font-size="11" font-weight="500" fill="#5F5E5A" text-anchor="middle" x="184" y="372">Agentless — SSH pull</text>
+  <text font-size="11" font-weight="500" fill="#5F5E5A" text-anchor="middle" x="468" y="372">Agent-based — WebSocket push</text>
+
+  <!-- Agentless hosts -->
+  <rect x="68"  y="386" width="110" height="56" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#2C2C2A" text-anchor="middle" x="123" y="414">Linux host</text>
+  <text font-size="11" fill="#888780" text-anchor="middle" x="123" y="432">Agentless</text>
+
+  <rect x="192" y="386" width="110" height="56" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#2C2C2A" text-anchor="middle" x="247" y="414">Linux host</text>
+  <text font-size="11" fill="#888780" text-anchor="middle" x="247" y="432">Agentless</text>
+
+  <!-- Agent devices -->
+  <rect x="352" y="386" width="110" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#26215C" text-anchor="middle" x="407" y="414">Linux agent</text>
+  <text font-size="11" fill="#534AB7" text-anchor="middle" x="407" y="432">Push metrics</text>
+
+  <rect x="474" y="386" width="110" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text font-size="13" font-weight="500" fill="#26215C" text-anchor="middle" x="529" y="414">Linux agent</text>
+  <text font-size="11" fill="#534AB7" text-anchor="middle" x="529" y="432">Push metrics</text>
+
+  <!-- Device type labels -->
+  <text font-size="10" fill="#888780" text-anchor="middle" x="123" y="458">On-prem / VM</text>
+  <text font-size="10" fill="#888780" text-anchor="middle" x="247" y="458">Edge device</text>
+  <text font-size="10" fill="#888780" text-anchor="middle" x="407" y="458">EC2 instance</text>
+  <text font-size="10" fill="#888780" text-anchor="middle" x="529" y="458">Cloud / server</text>
+
+  <!-- SSH pull arrows (dashed green, left channel) -->
+  <path d="M72,210 L40,210 L40,379 L123,379 L123,386" fill="none" stroke="#0F6E56" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+  <path d="M72,210 L40,210 L40,379 L247,379 L247,386" fill="none" stroke="#0F6E56" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+
+  <!-- WebSocket arrows (solid purple, right channel) -->
+  <path d="M407,386 L407,379 L636,379 L636,182 L436,182" fill="none" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arr)"/>
+  <path d="M529,386 L529,379 L636,379 L636,182 L436,182" fill="none" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Legend -->
+  <line x1="68" y1="490" x2="96" y2="490" stroke="#0F6E56" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <circle cx="96" cy="490" r="2" fill="#0F6E56"/>
+  <text font-size="11" fill="#5F5E5A" x="104" y="494">SSH pull — agentless, no install required on target host</text>
+
+  <line x1="68" y1="510" x2="96" y2="510" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text font-size="11" fill="#5F5E5A" x="104" y="514">WebSocket push — agent daemon, offline-resilient, scales beyond 50 nodes</text>
+</svg>
