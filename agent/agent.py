@@ -1,194 +1,329 @@
 #!/usr/bin/env python3
 """
-Fleet Manager Agent
-Runs as a daemon on any Linux device. Reads /proc metrics and pushes
-to the control plane via WebSocket. Handles disconnects with auto-reconnect
-and polls for pending commands on each reconnect.
+Fleet Manager agent — runs on any Linux, macOS or Windows machine.
 
-Usage:
-  python agent.py --server ws://your-server:8000 --http http://your-server:8000
+  python agent.py --server http://CONTROL_PLANE:8000 --token AGENT_TOKEN
+  python agent.py --once          # print one sample and exit (sanity check)
 
-Install as systemd service: see SETUP.md
+What it does:
+  * Registers with the control plane and saves its device id in ~/.fleet-agent/
+    (so a restart keeps the same identity even if two machines share a hostname).
+  * A sampler task collects metrics every --interval seconds into a bounded buffer,
+    connected or not. While online the buffer drains immediately; while offline it
+    fills up (oldest samples dropped when full) and is flushed as one batch on reconnect.
+  * Receives commands over the same WebSocket, runs them one at a time with a
+    timeout, and sends back exit code + output. Command ids already executed are
+    remembered, so a re-delivered command returns its stored result instead of
+    running twice (the server delivers at-least-once).
+  * Reconnects with exponential backoff + jitter.
+
+Metrics come from psutil, which reads /proc on Linux, sysctl/Mach APIs on macOS
+and Win32 APIs on Windows — one code path for every OS.
 """
 import argparse
 import asyncio
 import json
 import logging
+import os
 import platform
+import random
 import socket
-import subprocess
 import time
-import uuid
+from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Tuple
+from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
-import websockets
+import psutil
+from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [agent] %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [agent] %(levelname)s %(message)s",
+                    datefmt="%H:%M:%S")
 log = logging.getLogger("fleet-agent")
 
+STATE_DIR = Path(os.environ.get("FLEET_AGENT_HOME", Path.home() / ".fleet-agent"))
+COMMAND_TIMEOUT = 60
+MAX_OUTPUT = 64 * 1024
+EXECUTED_CACHE_SIZE = 200
 
-# ── Metric collection from /proc ─────────────────────────────────────────────
 
-def _read(path: str) -> str:
+# ── Local state ──────────────────────────────────────────────────────────────
+
+class State:
+    def __init__(self, directory: Path):
+        self.dir = directory
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.file = self.dir / "state.json"
+        self.executed_file = self.dir / "executed.json"
+        self.data = self._load(self.file, {})
+        self.executed = self._load(self.executed_file, {})
+
+    @staticmethod
+    def _load(path: Path, default):
+        try:
+            return json.loads(path.read_text())
+        except (OSError, ValueError):
+            return default
+
+    def _save(self, path: Path, data) -> None:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data))
+        tmp.replace(path)   # atomic rename: a crash never leaves a half-written file
+
+    def device_id_for(self, server: str) -> Optional[str]:
+        return self.data.get(server)
+
+    def set_device_id(self, server: str, device_id: str) -> None:
+        self.data[server] = device_id
+        self._save(self.file, self.data)
+
+    def remember_result(self, command_id: str, result: dict) -> None:
+        self.executed[command_id] = result
+        while len(self.executed) > EXECUTED_CACHE_SIZE:
+            self.executed.pop(next(iter(self.executed)))   # dicts keep insertion order
+        self._save(self.executed_file, self.executed)
+
+
+# ── Metric collection (cross-platform) ───────────────────────────────────────
+
+def root_path() -> str:
+    if platform.system() == "Windows":
+        return os.environ.get("SystemDrive", "C:") + "\\"
+    if platform.system() == "Darwin" and os.path.isdir("/System/Volumes/Data"):
+        return "/System/Volumes/Data"   # the user-data volume on modern macOS
+    return "/"
+
+
+def distro_name() -> str:
+    system = platform.system()
+    if system == "Linux":
+        try:
+            return platform.freedesktop_os_release().get("PRETTY_NAME", "Linux")
+        except (OSError, AttributeError):
+            return f"Linux {platform.release()}"
+    if system == "Darwin":
+        return f"macOS {platform.mac_ver()[0]}"
+    if system == "Windows":
+        return f"Windows {platform.release()} ({platform.version()})"
+    return f"{system} {platform.release()}"
+
+
+def local_ip(server_host: str) -> Optional[str]:
+    """The address this machine uses to reach the server (no packet is actually sent)."""
     try:
-        return Path(path).read_text().strip()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect((server_host or "8.8.8.8", 80))
+            return s.getsockname()[0]
     except OSError:
-        return ""
+        return None
 
 
-def get_cpu_percent() -> float:
-    """Two-sample diff against /proc/stat for accurate CPU usage."""
-    def read_stat():
-        line = [l for l in _read("/proc/stat").splitlines() if l.startswith("cpu ")][0]
-        vals = [int(x) for x in line.split()[1:]]
-        return sum(vals), vals[3]  # total, idle
+class Collector:
+    def __init__(self):
+        psutil.cpu_percent(interval=None)   # first call primes the counter and returns 0
+        self._net = psutil.net_io_counters()
+        self._net_time = time.monotonic()
+        self._root = root_path()
 
-    total1, idle1 = read_stat()
-    time.sleep(0.2)
-    total2, idle2 = read_stat()
-    delta_total = total2 - total1 or 1
-    return round((1 - (idle2 - idle1) / delta_total) * 100, 2)
+    def sample(self) -> dict:
+        now = time.monotonic()
+        net = psutil.net_io_counters()
+        elapsed = max(now - self._net_time, 1e-6)
+        rx = max(net.bytes_recv - self._net.bytes_recv, 0) / 1024 / elapsed
+        tx = max(net.bytes_sent - self._net.bytes_sent, 0) / 1024 / elapsed
+        self._net, self._net_time = net, now
 
-
-def get_mem_percent() -> float:
-    data = {}
-    for line in _read("/proc/meminfo").splitlines():
-        k, _, v = line.partition(":")
         try:
-            data[k.strip()] = int(v.strip().split()[0])
-        except (ValueError, IndexError):
-            pass
-    total = data.get("MemTotal", 1)
-    available = data.get("MemAvailable", 0)
-    return round((total - available) / total * 100, 2)
+            load = [round(x, 2) for x in psutil.getloadavg()]   # emulated on Windows
+        except (AttributeError, OSError):
+            load = [None, None, None]
+
+        return {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "cpu_pct": round(psutil.cpu_percent(interval=None), 2),
+            "mem_pct": round(psutil.virtual_memory().percent, 2),
+            "disk_pct": round(psutil.disk_usage(self._root).percent, 2),
+            "net_in_kbps": round(rx, 2),
+            "net_out_kbps": round(tx, 2),
+            "load_1m": load[0], "load_5m": load[1], "load_15m": load[2],
+        }
 
 
-def get_disk_percent() -> float:
-    try:
-        out = subprocess.run(
-            ["df", "/", "--output=pcent"], capture_output=True, text=True, timeout=5
-        ).stdout
-        return float(out.splitlines()[-1].strip().rstrip("%"))
-    except Exception:
-        return 0.0
+# ── The agent ────────────────────────────────────────────────────────────────
 
+class Agent:
+    def __init__(self, server: str, token: Optional[str], interval: int, buffer_size: int, tags: dict):
+        self.server = server.rstrip("/")
+        self.token = token
+        self.interval = interval
+        self.tags = tags
+        self.state = State(STATE_DIR)
+        self.collector = Collector()
+        self.buffer: deque = deque(maxlen=buffer_size)   # bounded: oldest dropped when full
+        self.dropped = 0
+        self.new_sample = asyncio.Event()
 
-def get_network_kb() -> Tuple[float, float]:
-    lines = _read("/proc/net/dev").splitlines()[2:]
-    rx_kb = sum(int(l.split()[1]) for l in lines if l.strip()) / 1024
-    tx_kb = sum(int(l.split()[9]) for l in lines if l.strip()) / 1024
-    return round(rx_kb, 2), round(tx_kb, 2)
+    @property
+    def ws_base(self) -> str:
+        u = urlparse(self.server)
+        scheme = "wss" if u.scheme == "https" else "ws"
+        return f"{scheme}://{u.netloc}"
 
-
-def get_load_avg() -> Tuple[float, float, float]:
-    parts = _read("/proc/loadavg").split()
-    return float(parts[0]), float(parts[1]), float(parts[2])
-
-
-def collect_metrics() -> dict:
-    net_in, net_out = get_network_kb()
-    load_1, load_5, load_15 = get_load_avg()
-    return {
-        "type": "metrics",
-        "cpu_pct": get_cpu_percent(),
-        "mem_pct": get_mem_percent(),
-        "disk_pct": get_disk_percent(),
-        "net_in_kb": net_in,
-        "net_out_kb": net_out,
-        "load_1m": load_1,
-        "load_5m": load_5,
-        "load_15m": load_15,
-    }
-
-
-# ── Command execution ─────────────────────────────────────────────────────────
-
-def run_shell(cmd: str) -> str:
-    try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30
-        )
-        return result.stdout or result.stderr or "(no output)"
-    except subprocess.TimeoutExpired:
-        return "ERROR: command timed out after 30s"
-    except Exception as e:
-        return f"ERROR: {e}"
-
-
-# ── Registration & main loop ──────────────────────────────────────────────────
-
-async def register(http_url: str) -> str:
-    """Register this device with the control plane. Returns device_id (UUID)."""
-    payload = {
-        "hostname": socket.gethostname(),
-        "ip_address": socket.gethostbyname(socket.gethostname()),
-        "os": platform.system(),
-        "distro": platform.version()[:80],
-        "arch": platform.machine(),
-        "mode": "agent",
-    }
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(f"{http_url}/devices/register", json=payload)
+    async def register(self) -> str:
+        payload = {
+            "device_id": self.state.device_id_for(self.server),
+            "hostname": socket.gethostname(),
+            "ip_address": local_ip(urlparse(self.server).hostname),
+            "os": platform.system(),
+            "distro": distro_name(),
+            "arch": platform.machine(),
+            "tags": self.tags,
+        }
+        headers = {"X-Agent-Token": self.token} if self.token else {}
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(f"{self.server}/devices/register", json=payload, headers=headers)
+        if resp.status_code in (401, 403):
+            raise PermissionError(resp.json().get("detail", resp.text))
         resp.raise_for_status()
-        data = resp.json()
-        log.info(f"Registered as '{data['hostname']}' (id={data['id']})")
-        return data["id"]
+        device_id = resp.json()["id"]
+        self.state.set_device_id(self.server, device_id)
+        return device_id
 
+    async def sampler(self) -> None:
+        """Runs forever, online or offline."""
+        while True:
+            try:
+                sample = await asyncio.to_thread(self.collector.sample)
+                if len(self.buffer) == self.buffer.maxlen:
+                    self.dropped += 1
+                self.buffer.append(sample)
+                self.new_sample.set()
+            except Exception as exc:
+                log.warning("sample failed: %s", exc)
+            await asyncio.sleep(self.interval)
 
-async def run(ws_url: str, http_url: str, interval: int):
-    device_id = await register(http_url)
-    full_ws = f"{ws_url}/ws/{device_id}"
+    async def sender(self, ws) -> None:
+        while True:
+            await self.new_sample.wait()
+            self.new_sample.clear()
+            samples = list(self.buffer)
+            if not samples:
+                continue
+            if len(samples) == 1:
+                msg = {"type": "metrics", **samples[0]}
+            else:
+                msg = {"type": "metrics_batch", "samples": samples}
+                log.info("flushing %d buffered samples%s", len(samples),
+                         f" ({self.dropped} dropped while offline)" if self.dropped else "")
+            await ws.send(json.dumps(msg))
+            # Only remove what was actually sent; if send raised, everything stays buffered
+            for _ in samples:
+                self.buffer.popleft()
+            self.dropped = 0
 
-    while True:
+    async def run_command(self, command: str) -> dict:
+        proc = await asyncio.create_subprocess_shell(
+            command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         try:
-            log.info(f"Connecting to {full_ws} ...")
-            async with websockets.connect(full_ws, ping_interval=20, ping_timeout=10) as ws:
-                log.info("Connected. Streaming metrics.")
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=COMMAND_TIMEOUT)
+            return {"exit_code": proc.returncode, "result": out.decode(errors="replace")[:MAX_OUTPUT]}
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return {"exit_code": 124, "result": f"ERROR: timed out after {COMMAND_TIMEOUT}s"}
 
-                while True:
-                    # Push metrics
-                    metrics = collect_metrics()
-                    await ws.send(json.dumps(metrics))
+    async def receiver(self, ws) -> None:
+        async for raw in ws:
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue
+            if msg.get("type") != "command":
+                continue
+            cmd_id, command = str(msg.get("command_id")), str(msg.get("command", ""))
+            if cmd_id in self.state.executed:
+                log.info("command %s already executed — replaying stored result", cmd_id[:8])
+                result = self.state.executed[cmd_id]
+            else:
+                log.info("running command %s: %s", cmd_id[:8], command)
+                result = await self.run_command(command)
+                self.state.remember_result(cmd_id, result)   # persist BEFORE replying
+            await ws.send(json.dumps({"type": "command_result", "command_id": cmd_id, **result}))
 
-                    # Non-blocking check for incoming commands
-                    try:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
-                        msg = json.loads(raw)
-                        if msg.get("type") == "command":
-                            cmd_text = msg["command"]
-                            cmd_id = msg["command_id"]
-                            log.info(f"Running command [{cmd_id[:8]}]: {cmd_text}")
-                            output = run_shell(cmd_text)
-                            await ws.send(json.dumps({
-                                "type": "command_result",
-                                "command_id": cmd_id,
-                                "status": "executed",
-                                "result": output,
-                            }))
-                    except asyncio.TimeoutError:
-                        pass  # no message waiting, that's fine
+    async def run(self) -> None:
+        asyncio.create_task(self.sampler())
+        backoff = 1
+        while True:
+            try:
+                device_id = await self.register()
+                url = f"{self.ws_base}/ws/{device_id}"
+                # Token in a header, never the URL (URLs get written to access logs)
+                headers = {"X-Agent-Token": self.token} if self.token else None
+                async with connect(url, additional_headers=headers, ping_interval=20,
+                                   ping_timeout=20, max_size=2 ** 20) as ws:
+                    log.info("connected to %s as %s (%s)", self.server, socket.gethostname(), device_id)
+                    backoff = 1
+                    self.new_sample.set()   # flush anything buffered while offline
+                    tasks = [asyncio.create_task(self.sender(ws)), asyncio.create_task(self.receiver(ws))]
+                    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                    for t in pending:
+                        t.cancel()
+                    for t in done:
+                        if t.exception():
+                            raise t.exception()
+                    log.warning("server closed the connection")
+            except PermissionError as exc:
+                log.error("rejected by server: %s — check --token / the server's FLEET_MODE", exc)
+                backoff = 60
+            except InvalidStatus as exc:
+                log.error("WebSocket rejected (HTTP %s) — check --token", exc.response.status_code)
+                backoff = 60
+            except (OSError, ConnectionClosed, httpx.HTTPError) as exc:
+                log.warning("connection problem: %s", exc or type(exc).__name__)
+            # Exponential backoff with jitter: a restarted server isn't hit by every agent at once
+            delay = min(backoff, 60) * random.uniform(0.5, 1.5)
+            log.info("retrying in %.0fs (%d sample(s) buffered)", delay, len(self.buffer))
+            await asyncio.sleep(delay)
+            backoff = min(backoff * 2, 60)
 
-                    await asyncio.sleep(interval)
 
-        except (OSError, websockets.exceptions.WebSocketException) as e:
-            log.warning(f"Connection lost ({e}). Retrying in 5s...")
-            await asyncio.sleep(5)
-        except Exception as e:
-            log.error(f"Unexpected error: {e}. Retrying in 10s...")
-            await asyncio.sleep(10)
+def parse_tags(pairs):
+    tags = {}
+    for p in pairs or []:
+        key, _, value = p.partition("=")
+        if key:
+            tags[key] = value
+    return tags
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="Fleet Manager agent (Linux / macOS / Windows)")
+    p.add_argument("--server", default=os.environ.get("FLEET_SERVER", "http://localhost:8000"),
+                   help="control plane URL, e.g. http://10.0.0.5:8000")
+    p.add_argument("--token", default=os.environ.get("FLEET_AGENT_TOKEN"), help="agent token from the server's .env")
+    p.add_argument("--interval", type=int, default=10, help="seconds between samples")
+    p.add_argument("--buffer", type=int, default=1000, help="max samples kept while offline")
+    p.add_argument("--tag", action="append", metavar="KEY=VALUE", help="label, repeatable: --tag env=prod")
+    p.add_argument("--once", action="store_true", help="print one sample and exit")
+    args = p.parse_args()
+
+    if args.once:
+        c = Collector()
+        time.sleep(1)
+        print(json.dumps({"hostname": socket.gethostname(), "os": platform.system(),
+                          "distro": distro_name(), "arch": platform.machine(), **c.sample()}, indent=2))
+        return
+
+    # (On Windows, Python's default Proactor event loop supports subprocesses, so no extra setup.)
+    agent = Agent(args.server, args.token, args.interval, args.buffer, parse_tags(args.tag))
+    try:
+        asyncio.run(agent.run())
+    except KeyboardInterrupt:
+        log.info("stopped")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fleet Manager Agent")
-    parser.add_argument("--server", default="ws://localhost:8000", help="WebSocket server base URL")
-    parser.add_argument("--http",   default="http://localhost:8000", help="HTTP server base URL")
-    parser.add_argument("--interval", type=int, default=10, help="Metric push interval in seconds")
-    args = parser.parse_args()
-
-    asyncio.run(run(args.server, args.http, args.interval))
+    main()

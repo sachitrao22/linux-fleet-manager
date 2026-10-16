@@ -1,5 +1,7 @@
-version: "3.9"
-
+# Production-style stack: control plane + PostgreSQL.
+#   cp .env.example .env      # then set SECRET_KEY and AGENT_TOKEN
+#   docker compose up --build
+# Dashboard: http://localhost:8000
 services:
   db:
     image: postgres:16-alpine
@@ -7,30 +9,29 @@ services:
       POSTGRES_USER: fleet
       POSTGRES_PASSWORD: fleet
       POSTGRES_DB: fleetmanager
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fleet"]
+      test: ["CMD-SHELL", "pg_isready -U fleet -d fleetmanager"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   api:
-    build: ./backend
+    build: .
     ports:
       - "8000:8000"
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://fleet:fleet@db:5432/fleetmanager
-      SECRET_KEY: change-me-in-production
-      SSH_KEY_PATH: /root/.ssh/id_rsa
+      # Agentless: the container uses this key to SSH into hosts (mounted read-only below)
+      SSH_KEY_PATH: /home/fleet/.ssh/id_ed25519
     volumes:
-      - ~/.ssh:/root/.ssh:ro   # mounts your SSH keys into the container
+      - ~/.ssh:/home/fleet/.ssh:ro
     depends_on:
       db:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
 
 volumes:
   postgres_data:

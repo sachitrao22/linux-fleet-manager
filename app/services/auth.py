@@ -1,33 +1,37 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional
 
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
+import jwt
 
 from app.config import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+from app.models.base import utcnow
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    # bcrypt salts automatically and is deliberately slow (work factor) to resist brute force
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
-    )
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except ValueError:
+        return False
+
+
+def create_access_token(username: str, role: str) -> str:
+    payload = {
+        "sub": username,
+        "role": role,
+        "exp": utcnow() + timedelta(minutes=settings.access_token_expire_minutes),
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
 def decode_token(token: str) -> Optional[dict]:
     try:
+        # algorithms=[...] is pinned so an attacker can't pick "none" or a different algorithm
         return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-    except JWTError:
+    except jwt.PyJWTError:
         return None

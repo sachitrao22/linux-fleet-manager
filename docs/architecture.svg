@@ -20,7 +20,7 @@
   <!-- DASHBOARD -->
   <rect x="68"  y="40" width="148" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
   <text font-size="13" font-weight="500" fill="#085041" text-anchor="middle" x="142" y="68">Fleet dashboard</text>
-  <text font-size="11" fill="#0F6E56" text-anchor="middle" x="142" y="86">React + Recharts</text>
+  <text font-size="11" fill="#0F6E56" text-anchor="middle" x="142" y="86">Built-in, no build step</text>
 
   <rect x="266" y="40" width="148" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
   <text font-size="13" font-weight="500" fill="#085041" text-anchor="middle" x="340" y="68">Cost calculator</text>
@@ -57,15 +57,15 @@
   <text font-size="11" fill="#993C1D" text-anchor="middle" x="132" y="300">JWT + RBAC</text>
 
   <rect x="240" y="254" width="168" height="56" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
-  <text font-size="13" font-weight="500" fill="#412402" text-anchor="middle" x="324" y="282">Postgres</text>
-  <text font-size="11" fill="#BA7517" text-anchor="middle" x="324" y="300">Device registry + metrics</text>
+  <text font-size="13" font-weight="500" fill="#412402" text-anchor="middle" x="324" y="282">SQLite / Postgres</text>
+  <text font-size="11" fill="#BA7517" text-anchor="middle" x="324" y="300">Devices, metrics, queue</text>
 
   <rect x="432" y="254" width="148" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
   <text font-size="13" font-weight="500" fill="#4A1B0C" text-anchor="middle" x="506" y="282">Alert engine</text>
   <text font-size="11" fill="#993C1D" text-anchor="middle" x="506" y="300">Threshold alerts</text>
 
   <!-- Edge separator -->
-  <line x1="326" y1="358" x2="326" y2="516" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 3"/>
+  <line x1="326" y1="358" x2="326" y2="468" stroke="#B4B2A9" stroke-width="1" stroke-dasharray="4 3"/>
 
   <!-- Mode labels -->
   <text font-size="11" font-weight="500" fill="#5F5E5A" text-anchor="middle" x="184" y="372">Agentless — SSH pull</text>
@@ -73,27 +73,27 @@
 
   <!-- Agentless hosts -->
   <rect x="68"  y="386" width="110" height="56" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
-  <text font-size="13" font-weight="500" fill="#2C2C2A" text-anchor="middle" x="123" y="414">Linux host</text>
+  <text font-size="13" font-weight="500" fill="#2C2C2A" text-anchor="middle" x="123" y="414">SSH host</text>
   <text font-size="11" fill="#888780" text-anchor="middle" x="123" y="432">Agentless</text>
 
   <rect x="192" y="386" width="110" height="56" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
-  <text font-size="13" font-weight="500" fill="#2C2C2A" text-anchor="middle" x="247" y="414">Linux host</text>
+  <text font-size="13" font-weight="500" fill="#2C2C2A" text-anchor="middle" x="247" y="414">SSH host</text>
   <text font-size="11" fill="#888780" text-anchor="middle" x="247" y="432">Agentless</text>
 
   <!-- Agent devices -->
   <rect x="352" y="386" width="110" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
-  <text font-size="13" font-weight="500" fill="#26215C" text-anchor="middle" x="407" y="414">Linux agent</text>
+  <text font-size="13" font-weight="500" fill="#26215C" text-anchor="middle" x="407" y="414">Agent (any OS)</text>
   <text font-size="11" fill="#534AB7" text-anchor="middle" x="407" y="432">Push metrics</text>
 
   <rect x="474" y="386" width="110" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
-  <text font-size="13" font-weight="500" fill="#26215C" text-anchor="middle" x="529" y="414">Linux agent</text>
+  <text font-size="13" font-weight="500" fill="#26215C" text-anchor="middle" x="529" y="414">Agent (any OS)</text>
   <text font-size="11" fill="#534AB7" text-anchor="middle" x="529" y="432">Push metrics</text>
 
   <!-- Device type labels -->
   <text font-size="10" fill="#888780" text-anchor="middle" x="123" y="458">On-prem / VM</text>
   <text font-size="10" fill="#888780" text-anchor="middle" x="247" y="458">Edge device</text>
-  <text font-size="10" fill="#888780" text-anchor="middle" x="407" y="458">EC2 instance</text>
-  <text font-size="10" fill="#888780" text-anchor="middle" x="529" y="458">Cloud / server</text>
+  <text font-size="10" fill="#888780" text-anchor="middle" x="407" y="458">Laptop (any OS)</text>
+  <text font-size="10" fill="#888780" text-anchor="middle" x="529" y="458">Server / EC2</text>
 
   <!-- SSH pull arrows (dashed green, left channel) -->
   <path d="M72,210 L40,210 L40,379 L123,379 L123,386" fill="none" stroke="#0F6E56" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr)"/>
@@ -109,5 +109,5 @@
   <text font-size="11" fill="#5F5E5A" x="104" y="494">SSH pull — agentless, no install required on target host</text>
 
   <line x1="68" y1="510" x2="96" y2="510" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arr)"/>
-  <text font-size="11" fill="#5F5E5A" x="104" y="514">WebSocket push — agent daemon, offline-resilient, scales beyond 50 nodes</text>
+  <text font-size="11" fill="#5F5E5A" x="104" y="514">WebSocket push — agent on Linux, macOS or Windows; buffers while offline</text>
 </svg>

@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet Manager</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4; --surface: #fcfcfb; --surface-2: #f0efec; --border: #e2e1dc;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #85847e;
+  --accent: #2a78d6; --accent-ink: #ffffff; --series-1: #2a78d6;
+  --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  --good-bg: #e6f4ea; --warn-bg: #fff4d6; --bad-bg: #fdeaea;
+  --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #33332f;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+    --accent: #3987e5; --series-1: #3987e5;
+    --good: #5cc277; --warn: #e3b341; --bad: #f07171;
+    --good-bg: #16301e; --warn-bg: #33290f; --bad-bg: #3a1818;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+.pill { font-size: 12px; padding: 2px 9px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.spacer { flex: 1; }
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 18px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+.card h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+input, select, button, textarea { font: inherit; color: inherit; }
+input, select { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+button { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+button.ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
+button.danger { background: transparent; color: var(--bad); border: 1px solid var(--border); }
+button:disabled { opacity: .5; cursor: default; }
+.muted { color: var(--text-2); } .small { font-size: 13px; } .mono { font-family: var(--mono); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; color: var(--text-3); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 9px 8px; border-bottom: 1px solid var(--border); font-size: 14px; white-space: nowrap; }
+tbody tr { cursor: pointer; } tbody tr:hover, tbody tr.sel { background: var(--surface-2); }
+.table-wrap { overflow-x: auto; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.online .dot { background: var(--good); } .offline .dot { background: var(--text-3); } .unreachable .dot { background: var(--bad); }
+.bar { position: relative; display: inline-block; width: 64px; height: 6px; border-radius: 3px; background: var(--surface-2); vertical-align: middle; margin-right: 6px; overflow: hidden; }
+.bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--series-1); }
+.bar.warning i { background: var(--warn); } .bar.critical i { background: var(--bad); }
+.badge { font-size: 12px; padding: 1px 8px; border-radius: 99px; }
+.badge.critical { background: var(--bad-bg); color: var(--bad); } .badge.warning { background: var(--warn-bg); color: var(--warn); }
+.charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 820px) { .charts { grid-template-columns: 1fr; } }
+.chart { position: relative; } .chart h3 { font-size: 13px; font-weight: 500; margin: 0 0 4px; color: var(--text-2); }
+.chart svg { width: 100%; height: 130px; display: block; overflow: visible; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 12px; white-space: nowrap; display: none; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+pre { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 6px 0 0; font: 12.5px/1.45 var(--mono); max-height: 220px; }
+.cmd { border-bottom: 1px solid var(--border); padding: 8px 0; }
+.empty { color: var(--text-3); font-size: 14px; padding: 8px 0; }
+#auth { max-width: 380px; margin: 12vh auto; }
+#auth input { width: 100%; margin-bottom: 10px; }
+.err { color: var(--bad); font-size: 13px; min-height: 18px; }
+.kpi { font-size: 26px; font-weight: 600; }
+.hide { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="auth" class="card hide">
+  <h2 id="auth-title">Log in</h2>
+  <p class="muted small" id="auth-sub"></p>
+  <form id="auth-form">
+    <input id="u" placeholder="Username" autocomplete="username" required>
+    <input id="p" type="password" placeholder="Password (8+ characters)" autocomplete="current-password" required>
+    <div class="err" id="auth-err"></div>
+    <button type="submit" id="auth-btn" style="width:100%">Log in</button>
+  </form>
+</div>
+
+<div id="app" class="hide">
+  <header>
+    <h1>Fleet Manager</h1>
+    <span class="pill" id="mode-pill"></span>
+    <span class="spacer"></span>
+    <span class="muted small" id="who"></span>
+    <button class="ghost" id="logout">Log out</button>
+  </header>
+  <main>
+    <section class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">Fleet</h2>
+        <span class="muted small" id="summary"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Status</th><th>Host</th><th>Mode</th><th>OS</th><th>CPU</th><th>Memory</th><th>Disk</th><th>Alerts</th><th>Last seen</th></tr></thead>
+          <tbody id="devices"></tbody>
+        </table>
+      </div>
+      <div class="empty hide" id="no-devices">No devices yet — start an agent or add an SSH host below.</div>
+    </section>
+
+    <section class="card hide" id="detail">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0" id="d-title"></h2>
+        <button class="danger admin-only" id="d-delete">Remove device</button>
+      </div>
+      <p class="muted small" id="d-meta" style="margin:4px 0 14px"></p>
+      <div class="charts">
+        <div class="chart" data-metric="cpu_pct"><h3>CPU %</h3><svg></svg><div class="tip"></div></div>
+        <div class="chart" data-metric="mem_pct"><h3>Memory %</h3><svg></svg><div class="tip"></div></div>
+        <div class="chart" data-metric="disk_pct"><h3>Disk %</h3><svg></svg><div class="tip"></div></div>
+      </div>
+      <p class="muted small">Last 60 minutes · dashed line = warning threshold</p>
+      <h2 style="margin-top:18px">Remote commands</h2>
+      <form id="cmd-form" class="row admin-only">
+        <input id="cmd" placeholder="e.g. uptime, df -h, systemctl status nginx" style="flex:1;min-width:200px" required>
+        <button type="submit">Run</button>
+      </form>
+      <p class="muted small admin-only" style="margin:6px 0 0">Offline agents receive queued commands when they reconnect.</p>
+      <div id="cmds"></div>
+    </section>
+
+    <div class="grid2">
+      <section class="card">
+        <h2>Open alerts</h2>
+        <div id="alerts"></div>
+      </section>
+      <section class="card">
+        <h2>Add a device</h2>
+        <div id="add-agent">
+          <p class="small muted" style="margin:0 0 4px">Agent (Linux, macOS, Windows) — run on the machine:</p>
+          <pre id="agent-cmd"></pre>
+        </div>
+        <form id="ssh-form" class="admin-only" style="margin-top:14px">
+          <p class="small muted" style="margin:0 0 6px">Agentless — the server SSHes in, nothing installed:</p>
+          <div class="row">
+            <input id="s-host" placeholder="Hostname" required style="flex:1">
+            <input id="s-ip" placeholder="IP address" required style="flex:1">
+          </div>
+          <div class="row" style="margin-top:8px">
+            <input id="s-user" placeholder="SSH user" required style="flex:1">
+            <input id="s-port" type="number" value="22" min="1" max="65535" style="width:90px">
+            <button type="submit">Add SSH host</button>
+          </div>
+          <div class="err" id="ssh-err"></div>
+        </form>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Cost vs CloudWatch custom metrics</h2>
+      <div class="row">
+        <label class="small muted">Devices <input id="c-dev" type="number" min="1" value="50" style="width:90px"></label>
+        <label class="small muted">Metrics per device <input id="c-met" type="number" min="1" value="25" style="width:90px"></label>
+        <label class="small muted">Self-host $/month <input id="c-host" type="number" min="0" value="15" style="width:90px"></label>
+      </div>
+      <div class="row" style="gap:36px;margin-top:14px">
+        <div><div class="muted small">CloudWatch (custom metrics)</div><div class="kpi" id="c-cw"></div></div>
+        <div><div class="muted small">Self-hosted</div><div class="kpi" id="c-self"></div></div>
+        <div><div class="muted small">Saving</div><div class="kpi" id="c-save"></div></div>
+      </div>
+      <p class="muted small">Estimate: $0.30 per custom metric per month (first-tier list price; verify current AWS pricing). Excludes CloudWatch API, alarm and log costs.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let token = null, me = null, mode = "hybrid", selected = null;
+try { token = localStorage.getItem("fleet_token"); } catch (e) {}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (token) headers.Authorization = "Bearer " + token;
+  if (opts.json) { headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(opts.json); }
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401 && path !== "/auth/token") { logout(); throw new Error("Session expired"); }
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch (e) {}
+    throw new Error(msg);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function ago(iso) {
+  if (!iso) return "never";
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return Math.round(s) + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  return Math.round(s / 86400) + "d ago";
+}
+const THRESH = { cpu_pct: [80, 95], mem_pct: [85, 95], disk_pct: [85, 95] };
+function level(metric, v) { if (v == null) return ""; const [w, c] = THRESH[metric]; return v >= c ? "critical" : v >= w ? "warning" : ""; }
+function meter(metric, v) {
+  if (v == null) return '<span class="muted">—</span>';
+  return `<span class="bar ${level(metric, v)}"><i style="width:${Math.min(v, 100)}%"></i></span>${v.toFixed(0)}%`;
+}
+
+// ── auth ──
+async function showAuth() {
+  $("app").classList.add("hide"); $("auth").classList.remove("hide");
+  const { setup_required } = await api("/auth/status");
+  $("auth").dataset.setup = setup_required ? "1" : "";
+  $("auth-title").textContent = setup_required ? "Create the admin account" : "Log in";
+  $("auth-sub").textContent = setup_required ? "First run: this account becomes the fleet admin." : "";
+  $("auth-btn").textContent = setup_required ? "Create admin" : "Log in";
+}
+$("auth-form").onsubmit = async (e) => {
+  e.preventDefault(); $("auth-err").textContent = "";
+  const username = $("u").value.trim(), password = $("p").value;
+  try {
+    if ($("auth").dataset.setup) await api("/auth/register", { method: "POST", json: { username, password } });
+    const body = new URLSearchParams({ username, password });
+    const t = await api("/auth/token", { method: "POST", body });
+    token = t.access_token; try { localStorage.setItem("fleet_token", token); } catch (e) {}
+    start();
+  } catch (err) { $("auth-err").textContent = err.message; }
+};
+function logout() { token = null; try { localStorage.removeItem("fleet_token"); } catch (e) {} showAuth(); }
+$("logout").onclick = logout;
+
+// ── fleet ──
+async function refresh() {
+  const [devices, alerts] = await Promise.all([api("/devices"), api("/alerts?status=open")]);
+  const names = Object.fromEntries(devices.map((d) => [d.id, d.hostname]));
+  const online = devices.filter((d) => d.status === "online").length;
+  $("summary").textContent = `${online} of ${devices.length} online`;
+  $("no-devices").classList.toggle("hide", devices.length > 0);
+  $("devices").innerHTML = devices.map((d) => {
+    const m = d.latest || {};
+    return `<tr data-id="${d.id}" class="${d.id === selected ? "sel" : ""}">
+      <td><span class="status ${esc(d.status)}"><span class="dot"></span>${esc(d.status)}</span></td>
+      <td><b>${esc(d.hostname)}</b><div class="muted small">${esc(d.ip_address || "")}</div></td>
+      <td>${d.mode === "agent" ? "agent" : "SSH"}</td>
+      <td class="small">${esc(d.distro || d.os || "—")}</td>
+      <td>${meter("cpu_pct", m.cpu_pct)}</td><td>${meter("mem_pct", m.mem_pct)}</td><td>${meter("disk_pct", m.disk_pct)}</td>
+      <td>${d.open_alerts ? `<span class="badge critical">${d.open_alerts}</span>` : '<span class="muted">0</span>'}</td>
+      <td class="muted small">${ago(d.last_seen)}</td></tr>`;
+  }).join("");
+  document.querySelectorAll("#devices tr").forEach((tr) => (tr.onclick = () => select(tr.dataset.id)));
+
+  $("alerts").innerHTML = alerts.length ? alerts.map((a) => `<div class="cmd">
+      <span class="badge ${esc(a.severity)}">${esc(a.severity)}</span>
+      <b>${esc(names[a.device_id] || "device")}</b> · ${a.metric === "offline" ? "not reporting" : `${esc(a.metric.replace("_pct", ""))} ${a.value?.toFixed(0)}% ≥ ${a.threshold}%`}
+      <span class="muted small"> · opened ${ago(a.opened_at)}</span></div>`).join("")
+    : '<div class="empty">No open alerts.</div>';
+
+  if (selected) loadDetail(devices.find((d) => d.id === selected));
+}
+
+async function select(id) { selected = id; refresh(); }
+
+async function loadDetail(d) {
+  if (!d) { $("detail").classList.add("hide"); selected = null; return; }
+  $("detail").classList.remove("hide");
+  $("d-title").textContent = d.hostname;
+  $("d-meta").textContent = [d.mode === "agent" ? "Agent" : `Agentless · ${d.ssh_user}@${d.ip_address}:${d.ssh_port}`,
+    d.distro || d.os, d.arch, `registered ${ago(d.registered_at)}`].filter(Boolean).join(" · ");
+  const [hist, cmds] = await Promise.all([api(`/metrics/${d.id}?minutes=60`), api(`/commands/${d.id}`)]);
+  document.querySelectorAll(".chart").forEach((el) => drawChart(el, hist));
+  $("cmds").innerHTML = cmds.length ? cmds.map((c) => `<div class="cmd">
+      <span class="mono">$ ${esc(c.command)}</span>
+      <span class="badge ${c.status === "failed" ? "critical" : c.status === "executed" ? "" : "warning"}">${esc(c.status)}${c.exit_code != null ? " · exit " + c.exit_code : ""}</span>
+      <span class="muted small">${ago(c.created_at)} by ${esc(c.created_by || "?")}</span>
+      ${c.result ? `<pre>${esc(c.result)}</pre>` : ""}</div>`).join("") : '<div class="empty">No commands yet.</div>';
+}
+
+// ── small-multiple line charts (one series each, so no legend; hover tooltip) ──
+function drawChart(el, rows) {
+  const metric = el.dataset.metric, svg = el.querySelector("svg"), tip = el.querySelector(".tip");
+  const W = 300, H = 130, L = 26, R = 6, T = 6, B = 18;
+  const pts = rows.filter((r) => r[metric] != null).map((r) => ({ t: new Date(r.ts).getTime(), v: r[metric] }));
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("preserveAspectRatio", "none");
+  const y = (v) => T + (H - T - B) * (1 - v / 100);
+  let grid = [0, 50, 100].map((g) => `<line x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--border)" stroke-width="1"/>
+    <text x="${L - 4}" y="${y(g) + 3}" text-anchor="end" font-size="9" fill="var(--text-3)">${g}</text>`).join("");
+  grid += `<line x1="${L}" x2="${W - R}" y1="${y(THRESH[metric][0])}" y2="${y(THRESH[metric][0])}" stroke="var(--warn)" stroke-width="1" stroke-dasharray="3 3"/>`;
+  if (!pts.length) { svg.innerHTML = grid + `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="11" fill="var(--text-3)">No data yet</text>`; return; }
+  const t0 = pts[0].t, t1 = Math.max(pts[pts.length - 1].t, t0 + 1);
+  const x = (t) => L + (W - L - R) * (t - t0) / (t1 - t0);
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  const fmt = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  svg.innerHTML = grid +
+    `<path d="${path}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+     <text x="${L}" y="${H - 4}" font-size="9" fill="var(--text-3)">${fmt(t0)}</text>
+     <text x="${W - R}" y="${H - 4}" font-size="9" text-anchor="end" fill="var(--text-3)">${fmt(t1)}</text>
+     <line class="xh" y1="${T}" y2="${H - B}" stroke="var(--text-3)" stroke-width="1" visibility="hidden" vector-effect="non-scaling-stroke"/>
+     <rect x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent"/>`;
+  const xh = svg.querySelector(".xh");
+  svg.onmousemove = (e) => {
+    const box = svg.getBoundingClientRect(), px = (e.clientX - box.left) / box.width * W;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(x(p.t) - px) < Math.abs(x(best.t) - px)) best = p;
+    xh.setAttribute("x1", x(best.t)); xh.setAttribute("x2", x(best.t)); xh.setAttribute("visibility", "visible");
+    tip.style.display = "block";
+    tip.innerHTML = `<b>${best.v.toFixed(1)}%</b> <span class="muted">${new Date(best.t).toLocaleTimeString()}</span>`;
+    const left = x(best.t) / W * box.width;
+    tip.style.left = Math.min(Math.max(left - tip.offsetWidth / 2, 0), box.width - tip.offsetWidth) + "px";
+    tip.style.top = "14px";
+  };
+  svg.onmouseleave = () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); };
+}
+
+// ── actions ──
+$("cmd-form").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api(`/commands/${selected}`, { method: "POST", json: { command: $("cmd").value, idempotency_key: crypto.randomUUID?.() } });
+    $("cmd").value = ""; refresh();
+  } catch (err) { alert(err.message); }
+};
+$("d-delete").onclick = async () => {
+  if (!confirm("Remove this device and all its history?")) return;
+  await api(`/devices/${selected}`, { method: "DELETE" }); selected = null; $("detail").classList.add("hide"); refresh();
+};
+$("ssh-form").onsubmit = async (e) => {
+  e.preventDefault(); $("ssh-err").textContent = "";
+  try {
+    await api("/devices/agentless", { method: "POST", json: {
+      hostname: $("s-host").value.trim(), ip_address: $("s-ip").value.trim(),
+      ssh_user: $("s-user").value.trim(), ssh_port: Number($("s-port").value) } });
+    e.target.reset(); $("s-port").value = 22; refresh();
+  } catch (err) { $("ssh-err").textContent = err.message; }
+};
+
+// ── cost calculator ──
+function calc() {
+  const n = +$("c-dev").value || 0, m = +$("c-met").value || 0, host = +$("c-host").value || 0;
+  const cw = n * m * 0.30, save = cw - host;
+  const usd = (v) => "$" + Math.round(v).toLocaleString();
+  $("c-cw").textContent = usd(cw) + "/mo"; $("c-self").textContent = usd(host) + "/mo";
+  $("c-save").textContent = cw > 0 ? `${usd(Math.max(save, 0))} (${Math.max(0, Math.round(save / cw * 100))}%)` : "—";
+}
+["c-dev", "c-met", "c-host"].forEach((id) => ($(id).oninput = calc));
+
+// ── boot ──
+async function start() {
+  try { me = await api("/auth/me"); } catch (e) { return showAuth(); }
+  const health = await api("/health"); mode = health.mode;
+  $("auth").classList.add("hide"); $("app").classList.remove("hide");
+  $("who").textContent = `${me.username} (${me.role})`;
+  $("mode-pill").textContent = { agent: "agent mode", agentless: "agentless mode", hybrid: "hybrid mode" }[mode];
+  document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hide", me.role !== "admin"));
+  $("add-agent").classList.toggle("hide", mode === "agentless");
+  if (mode === "agent") $("ssh-form").classList.add("hide");
+  $("agent-cmd").textContent = `pip install -r agent/requirements.txt\npython agent/agent.py --server ${location.origin} --token <AGENT_TOKEN from .env>`;
+  calc(); refresh();
+  clearInterval(window._timer); window._timer = setInterval(() => refresh().catch(() => {}), 5000);
+}
+token ? start() : showAuth();
+</script>
+</body>
+</html>
