@@ -1,25 +1,36 @@
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, DateTime, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, Column, Integer, String, Uuid
 
 from app.database import Base
+from app.models.base import UTCDateTime, utcnow
 
 
 class Device(Base):
     __tablename__ = "devices"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    hostname = Column(String, nullable=False, unique=True)
+    # UUID, not 1,2,3… — IDs can't be guessed. Generic Uuid type works on SQLite and Postgres.
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+
+    # Not unique: two machines can share a hostname. Identity is the id, which the
+    # agent persists locally and sends back when it re-registers.
+    hostname = Column(String, nullable=False, index=True)
     ip_address = Column(String)
-    os = Column(String)
-    distro = Column(String)
-    arch = Column(String)
-    mode = Column(String, nullable=False, default="agent")  # agent | agentless
+    os = Column(String)        # "Linux", "Darwin", "Windows"
+    distro = Column(String)    # "Ubuntu 22.04.4 LTS", "macOS 15.1", "Windows 11"
+    arch = Column(String)      # "x86_64", "arm64"
+
+    # "agent" = device pushes over WebSocket | "agentless" = server pulls over SSH
+    mode = Column(String, nullable=False, default="agent")
+
+    # Agentless only. No passwords are stored — SSH keys / ssh-agent only.
     ssh_user = Column(String)
-    ssh_port = Column(String, default="22")
-    status = Column(String, default="offline")              # online | offline | unreachable
-    last_seen = Column(DateTime(timezone=True))
-    registered_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    ssh_port = Column(Integer, default=22)
+
+    # online | offline | unreachable
+    status = Column(String, nullable=False, default="offline")
+    last_seen = Column(UTCDateTime())
+    registered_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+
+    # Free-form labels, e.g. {"env": "prod", "team": "infra"} — no schema change per label
     tags = Column(JSON, default=dict)

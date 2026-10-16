@@ -1,0 +1,17 @@
+# Agentless inventory. Copy to hosts.yaml and run:
+#   python launch.py server --mode agentless --hosts hosts.yaml
+#
+# The control plane must be able to `ssh <ssh_user>@<ip> -p <ssh_port>` with a key
+# (ssh-agent, ~/.ssh/id_ed25519, or SSH_KEY_PATH in .env) — passwords are not stored.
+# Targets: Linux (and macOS). Windows machines should run the agent instead.
+hosts:
+  - hostname: web-01
+    ip: 192.168.1.50
+    ssh_user: ubuntu
+    ssh_port: 22
+    tags: {env: prod, role: web}
+
+  - hostname: lab-pi
+    ip: 192.168.1.80
+    ssh_user: pi
+    tags: {env: lab}
