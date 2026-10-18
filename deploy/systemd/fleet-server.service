@@ -1,0 +1,30 @@
+# Linux Fleet Manager — control plane, as a systemd service (Linux).
+# Installed by deploy/install-service.sh, which fills in the paths, user and port.
+#   sudo systemctl status fleet-server     # is it running?
+#   journalctl -u fleet-server -f          # follow the logs
+
+[Unit]
+Description=Linux Fleet Manager control plane
+Documentation=https://github.com/sachitrao22/linux-fleet-manager
+# Start only once the network is up (agents connect to it; SSH polling needs it)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{USER}}
+# .env in this directory holds SECRET_KEY, AGENT_TOKEN, FLEET_MODE, DATABASE_URL
+WorkingDirectory={{ROOT}}
+ExecStart="{{PYTHON}}" -m uvicorn app.main:app --host 0.0.0.0 --port {{PORT}}
+Environment=PYTHONUNBUFFERED=1
+# Crashes are restarted after 5 s; `systemctl stop` keeps it stopped
+Restart=on-failure
+RestartSec=5
+# Hardening: no privilege escalation, a private /tmp, read-only /usr /boot /etc
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+# Start on boot
+WantedBy=multi-user.target

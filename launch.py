@@ -6,6 +6,7 @@ Interactive (asks you what to run and which monitoring mode):
     python launch.py
 
 Non-interactive:
+    python launch.py init   --mode hybrid      # only write .env (before installing as a service)
     python launch.py server --mode agentless|agent|hybrid [--hosts hosts.yaml] [--port 8000]
     python launch.py agent  --server http://HOST:8000 --token TOKEN
     python launch.py both   --mode hybrid      # server + an agent for this machine (demo)
@@ -46,14 +47,19 @@ def write_env(env: dict) -> None:
     lines = ["# Written by launch.py — edit freely. Never commit this file."]
     lines += [f"{k}={v}" for k, v in env.items()]
     ENV_FILE.write_text("\n".join(lines) + "\n")
+    try:
+        os.chmod(ENV_FILE, 0o600)   # holds SECRET_KEY and AGENT_TOKEN: owner-only
+    except OSError:
+        pass                        # e.g. some Windows filesystems
 
 
-def ensure_env(mode: str, hosts: str = None, database_url: str = None) -> dict:
+def ensure_env(mode: str = None, hosts: str = None, database_url: str = None) -> dict:
+    """Create .env on first run; keep existing secrets on later runs. mode=None keeps the current mode."""
     env = read_env()
     env.setdefault("SECRET_KEY", secrets.token_hex(32))
     env.setdefault("AGENT_TOKEN", secrets.token_urlsafe(24))
     env.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./fleet.db")
-    env["FLEET_MODE"] = mode
+    env["FLEET_MODE"] = mode or env.get("FLEET_MODE", "hybrid")
     if database_url:
         env["DATABASE_URL"] = database_url
     if hosts:
@@ -138,6 +144,14 @@ def run(ns: argparse.Namespace) -> None:
     if ns.role == "agent":
         sys.exit(subprocess.call(agent_cmd(ns.server, ns.token, ns.interval)))
 
+    if ns.role == "init":
+        # Prepare .env without starting anything — used before installing the server as a
+        # service, because a service can't answer the interactive questions.
+        env = ensure_env(ns.mode, ns.hosts, ns.database_url)
+        print(f".env ready in {ROOT}  (mode: {env['FLEET_MODE']})")
+        print(f"AGENT_TOKEN={env['AGENT_TOKEN']}   <- agents need this to connect")
+        return
+
     env = ensure_env(ns.mode, ns.hosts, ns.database_url)
     print_server_banner(env, ns.port, ns.mode)
 
@@ -188,6 +202,11 @@ def main() -> None:
         s.add_argument("--database-url", help="e.g. postgresql+asyncpg://fleet:fleet@localhost:5432/fleet")
         s.add_argument("--interval", type=int, default=10)
         s.set_defaults(server=None, token=None)
+    i = sub.add_parser("init", help="write .env (secrets + mode) and exit; run before installing a service")
+    i.add_argument("--mode", choices=["agentless", "agent", "hybrid"],
+                   help="default: keep the current mode, or hybrid on first run")
+    i.add_argument("--hosts", help="hosts.yaml to import for agentless mode")
+    i.add_argument("--database-url")
     a = sub.add_parser("agent")
     a.add_argument("--server", required=True)
     a.add_argument("--token")

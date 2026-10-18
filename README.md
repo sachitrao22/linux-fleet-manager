@@ -64,6 +64,18 @@ python launch.py server --mode agentless --hosts hosts.yaml
 python launch.py agent  --server http://10.0.0.5:8000 --token <AGENT_TOKEN>
 ```
 
+### Run it as a service (starts on boot, restarts on crash)
+
+`launch.py` stops when you close the terminal. To keep the server or an agent running,
+install it as a systemd (Linux) or launchd (macOS) service:
+
+```bash
+deploy/install-service.sh server --mode hybrid
+deploy/install-service.sh agent  --server http://10.0.0.5:8000 --token <AGENT_TOKEN>
+```
+
+Details, logs, uninstalling and Windows: [docs/SERVICES.md](./docs/SERVICES.md).
+
 ## Adding devices
 
 **Agent (any OS).** Copy the `agent/` folder to the machine, then:
@@ -75,8 +87,8 @@ python agent/agent.py --once        # just print one sample, to check it works
 ```
 
 The agent saves its device id in `~/.fleet-agent/`, so restarts keep the same identity.
-To run it on boot, see [docs/RUNNING_THE_AGENT.md](./docs/RUNNING_THE_AGENT.md)
-(systemd, launchd, Windows Task Scheduler).
+To run it on boot, install it as a service: `deploy/install-service.sh agent …`
+([docs/SERVICES.md](./docs/SERVICES.md); Windows uses Task Scheduler, also described there).
 
 **Agentless (Linux / macOS hosts).** Nothing is installed on the host. The control
 plane must be able to `ssh user@host` with a key and no password prompt:
@@ -142,7 +154,8 @@ app/
   services/            ingest, alerts, ssh_collector, poller, ws_manager, auth
   static/index.html    dashboard (vanilla JS, no build step)
 agent/agent.py         cross-platform agent (psutil)
-launch.py              interactive launcher: choose role and monitoring mode
+launch.py              interactive launcher: choose role and monitoring mode; `init` writes .env only
+deploy/                systemd units, launchd plists, install-service.sh
 tests/                 pytest suite
 DESIGN_DECISIONS.md    why things are built the way they are
 ```

@@ -1,0 +1,27 @@
+# Linux Fleet Manager — agent, as a systemd service (Linux, including Raspberry Pi).
+# Installed by deploy/install-service.sh, which fills in the paths, user and port.
+#   sudo systemctl status fleet-agent
+#   journalctl -u fleet-agent -f
+
+[Unit]
+Description=Linux Fleet Manager agent
+Documentation=https://github.com/sachitrao22/linux-fleet-manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Remote commands run with THIS user's permissions
+User={{USER}}
+WorkingDirectory={{ROOT}}
+# FLEET_SERVER and FLEET_AGENT_TOKEN come from a root-only file, so the token
+# never appears on the command line (visible to every user via `ps`)
+EnvironmentFile=/etc/fleet-agent/agent.env
+ExecStart="{{PYTHON}}" "{{ROOT}}/agent/agent.py"
+Environment=PYTHONUNBUFFERED=1
+# The agent should never stop on its own: restart it whatever the reason
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

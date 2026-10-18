@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Linux Fleet Manager — agent, as a launchd agent (macOS).
+     Installed by deploy/install-service.sh into ~/Library/LaunchAgents (mode 600, because it
+     holds the agent token). Starts when you log in, always restarted. Logs: {{LOGDIR}}/fleet-agent.log -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fleet.agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{PYTHON}}</string>
+    <string>{{ROOT}}/agent/agent.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{ROOT}}</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>FLEET_SERVER</key>
+    <string>{{SERVER}}</string>
+    <key>FLEET_AGENT_TOKEN</key>
+    <string>{{TOKEN}}</string>
+    <!-- launchd's default PATH lacks Homebrew, so remote commands like `brew list` need this -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+
+  <key>StandardOutPath</key>
+  <string>{{LOGDIR}}/fleet-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{LOGDIR}}/fleet-agent.log</string>
+</dict>
+</plist>
