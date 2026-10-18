@@ -8,7 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY agent ./agent
+COPY web ./web
 COPY launch.py hosts.example.yaml ./
+COPY deploy ./deploy
 
 # Run as a non-root user
 RUN useradd --create-home fleet && chown -R fleet /srv

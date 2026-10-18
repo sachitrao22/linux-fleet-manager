@@ -22,7 +22,7 @@ from app.database import AsyncSessionLocal
 from app.models import Command, Device
 from app.models.base import utcnow
 from app.routers.commands import command_message
-from app.routers.deps import agent_token_ok
+from app.routers.deps import token_matches_device
 from app.services.alerts import set_offline_alert
 from app.services.ingest import record_sample
 from app.services.ws_manager import manager
@@ -92,7 +92,7 @@ async def agent_socket(websocket: WebSocket, device_id: uuid.UUID,
     # Header, not query string: URLs end up in access logs and proxies; headers don't.
     # (?token= is still accepted for clients that can't set headers, e.g. browsers.)
     presented = websocket.headers.get("x-agent-token") or token
-    if not settings.accepts_agents or not agent_token_ok(presented):
+    if not settings.accepts_agents:
         await websocket.close(code=4401)
         return
 
@@ -100,6 +100,11 @@ async def agent_socket(websocket: WebSocket, device_id: uuid.UUID,
         device = await db.get(Device, device_id)
         if device is None or device.mode != "agent":
             await websocket.close(code=4404)   # agent will re-register and get a fresh id
+            return
+        # The token must belong to this device's owner: the owner token for the owner's
+        # fleet, the sandbox token for a sandbox device. One sandbox can't hijack another.
+        if not await token_matches_device(db, device, presented):
+            await websocket.close(code=4401)
             return
         hostname = device.hostname
 

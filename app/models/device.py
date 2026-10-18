@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import JSON, Column, Integer, String, Uuid
+from sqlalchemy import JSON, Column, ForeignKey, Integer, String, Uuid
 
 from app.database import Base
 from app.models.base import UTCDateTime, utcnow
@@ -31,6 +31,9 @@ class Device(Base):
     status = Column(String, nullable=False, default="offline")
     last_seen = Column(UTCDateTime())
     registered_at = Column(UTCDateTime(), nullable=False, default=utcnow)
+
+    # NULL = the owner's fleet. Set = belongs to a visitor's demo sandbox (deleted with it).
+    workspace_id = Column(Uuid, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # Free-form labels, e.g. {"env": "prod", "team": "infra"} — no schema change per label
     tags = Column(JSON, default=dict)

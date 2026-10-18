@@ -41,6 +41,15 @@ class ConnectionManager:
             return True
         return False
 
+    async def close(self, device_id: str, code: int = 1000, reason: str = "") -> None:
+        """Server-initiated close, e.g. when a demo sandbox expires."""
+        ws = self.connections.pop(device_id, None)
+        if ws is not None:
+            try:
+                await ws.close(code=code, reason=reason)
+            except Exception:
+                pass
+
     def is_connected(self, device_id: str) -> bool:
         return device_id in self.connections
 

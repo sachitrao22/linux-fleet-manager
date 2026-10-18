@@ -16,13 +16,24 @@ Agentless targets are Linux or macOS hosts reachable over SSH.
 
 ![Architecture](./docs/architecture.svg)
 
+## Live demo
+
+**[Try it in your browser →](https://YOUR-PROJECT.vercel.app)**: watch a real server report
+live, run read-only commands on it, or connect your own computer with one command. It goes into
+a private, read-only sandbox that's deleted after an hour. (Free hosting: the first visit after
+a quiet spell takes about a minute to wake the server.)
+
+To host your own copy (Vercel + Render + Neon, all free), follow [docs/DEPLOY.md](./docs/DEPLOY.md).
+
 ## Features
 
 - **Dual-mode collection** — agentless SSH pull (Paramiko) and agent WebSocket push, selectable per deployment, mixed freely per device
 - **Offline resilience** — commands issued to an offline device are queued and delivered on reconnect; the agent buffers samples during outages and flushes them with their original timestamps
 - **At-least-once command delivery with idempotent execution** — re-sent commands return their stored result instead of running twice
 - **Threshold alerts** — warning/critical per metric, deduplicated per incident, auto-resolving; "device not reporting" alerts
-- **Built-in dashboard** — fleet table, per-device charts, remote command console, alerts, CloudWatch cost calculator
+- **Built-in dashboard** — fleet table, per-device charts, remote commands with a live view of each command's journey (queued → sent → result), alerts, CloudWatch cost calculator; deployable on its own to Vercel
+- **Built-in read-only actions** — uptime, system info, memory, disk, top processes, network — implemented in the agent with psutil (no shell). `--safe` agents refuse everything else, so even a compromised server can't run code on them
+- **Public demo mode** — anonymous visitors see a live showcase device and run read-only actions; each visitor who adds a computer gets an isolated, expiring sandbox with its own agent token, device cap and rate limits
 - **Security** — bcrypt passwords, JWT with admin/viewer roles, first-run admin bootstrap, shared agent token sent as a header, SSH keys only (no stored passwords), optional strict host-key checking
 - **Zero-setup by default** — SQLite out of the box; PostgreSQL for production (same code, tested on both)
 
@@ -136,10 +147,12 @@ pytest
 TEST_DATABASE_URL=postgresql+asyncpg://user@localhost:5432/fleet_test pytest   # same suite on Postgres
 ```
 
-16 tests cover auth bootstrap and roles, agent tokens, identity on re-register, metric
+27 tests cover auth bootstrap and roles, agent tokens, identity on re-register, metric
 ingestion and validation, buffered batches, alert open/escalate/resolve, the offline
 command queue and at-least-once redelivery, idempotency keys, mode gating, unreachable
-agentless hosts, and the agentless shell script itself.
+agentless hosts, the agentless shell script, and the public demo: anonymous visibility,
+sandbox isolation, actions-only enforcement, token hijack attempts, device caps, rate
+limits, expiry and cleanup, and provider-style database URLs.
 
 ## Project structure
 
@@ -148,14 +161,17 @@ app/
   main.py              app + lifespan: starts the SSH poller and offline sweeper
   config.py            all settings (env vars / .env)
   database.py          async SQLAlchemy engine and sessions
-  models/              devices, metrics (wide-row), commands (queue), alerts, users
+  models/              devices, metrics (wide-row), commands (queue), alerts, users, workspaces (demo sandboxes)
   schemas/             Pydantic request/response validation
-  routers/             auth, devices, metrics, commands, alerts, ws (agent socket)
-  services/            ingest, alerts, ssh_collector, poller, ws_manager, auth
-  static/index.html    dashboard (vanilla JS, no build step)
+  routers/             auth, devices, metrics, commands, alerts, ws (agent socket), demo; deps = permissions
+  services/            ingest, alerts, ssh_collector, poller (+ cleanup), ws_manager, auth, ratelimit
+  actions.py           the built-in read-only actions (names shared with the agent)
+  templates/           one-line installers served to demo visitors (install.sh, install.ps1)
+web/                   dashboard: index.html + config.js (API URL) — served by the API or by Vercel
 agent/agent.py         cross-platform agent (psutil)
 launch.py              interactive launcher: choose role and monitoring mode; `init` writes .env only
-deploy/                systemd units, launchd plists, install-service.sh
+deploy/                systemd units, launchd plists, install-service.sh, render-start.sh
+render.yaml            Render Blueprint for the public demo API
 tests/                 pytest suite
 DESIGN_DECISIONS.md    why things are built the way they are
 ```

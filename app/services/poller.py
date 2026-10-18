@@ -16,11 +16,11 @@ from datetime import timedelta
 from pathlib import Path
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.models import Command, Device
+from app.models import Alert, Command, Device, Metric, User, Workspace
 from app.models.base import utcnow
 from app.services.alerts import set_offline_alert
 from app.services.ingest import record_sample
@@ -94,6 +94,57 @@ async def sweeper_loop() -> None:
             await sweep_once()
         except Exception:
             log.exception("sweeper iteration failed")
+
+
+async def cleanup_once() -> None:
+    """Delete expired demo sandboxes (with their devices and data) and apply retention."""
+    now = utcnow()
+    async with AsyncSessionLocal() as db:
+        expired = (await db.execute(select(Workspace).where(Workspace.expires_at <= now))).scalars().all()
+        for ws in expired:
+            device_ids = (await db.execute(select(Device.id).where(Device.workspace_id == ws.id))).scalars().all()
+            for did in device_ids:
+                # Close live sockets first; the agent then re-registers, gets 410 and exits
+                await manager.close(str(did), code=4410, reason="demo session ended")
+            # Devices first (their metrics, commands and alerts cascade), then the sandbox
+            await db.execute(delete(Device).where(Device.workspace_id == ws.id))
+            await db.delete(ws)
+        if expired:
+            log.info("removed %d expired demo session(s)", len(expired))
+        if settings.retention_hours > 0:
+            cutoff = now - timedelta(hours=settings.retention_hours)
+            await db.execute(delete(Metric).where(Metric.ts < cutoff))
+            await db.execute(delete(Command).where(Command.created_at < cutoff,
+                                                   Command.status.in_(["executed", "failed"])))
+            await db.execute(delete(Alert).where(Alert.status == "resolved", Alert.resolved_at < cutoff))
+        await db.commit()
+
+
+async def cleanup_loop() -> None:
+    while True:
+        try:
+            await cleanup_once()
+        except Exception:
+            log.exception("cleanup iteration failed")
+        await asyncio.sleep(60)
+
+
+async def ensure_admin_from_settings() -> None:
+    """Create (or update) the admin account from ADMIN_USERNAME / ADMIN_PASSWORD."""
+    if not (settings.admin_username and settings.admin_password):
+        return
+    from app.services.auth import hash_password, verify_password
+    async with AsyncSessionLocal() as db:
+        user = (await db.execute(select(User).where(User.username == settings.admin_username))).scalars().first()
+        if user is None:
+            db.add(User(username=settings.admin_username,
+                        hashed_password=hash_password(settings.admin_password), role="admin"))
+            log.info("created admin account %r from settings", settings.admin_username)
+        else:
+            user.role = "admin"
+            if not verify_password(settings.admin_password, user.hashed_password):
+                user.hashed_password = hash_password(settings.admin_password)
+        await db.commit()
 
 
 async def mark_agents_offline_on_startup() -> None:

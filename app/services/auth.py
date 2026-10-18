@@ -29,6 +29,12 @@ def create_access_token(username: str, role: str) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
+def create_demo_token(workspace_id, expires_at) -> str:
+    """Session token for a public-demo visitor: scoped to one sandbox, expires with it."""
+    payload = {"sub": f"demo:{workspace_id}", "ws": str(workspace_id), "exp": expires_at}
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
 def decode_token(token: str) -> Optional[dict]:
     try:
         # algorithms=[...] is pinned so an attacker can't pick "none" or a different algorithm

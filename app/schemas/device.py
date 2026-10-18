@@ -43,6 +43,7 @@ class DeviceResponse(BaseModel):
     last_seen: Optional[datetime]
     registered_at: datetime
     tags: Optional[Dict[str, Any]]
+    workspace_id: Optional[uuid.UUID] = None   # None = the owner's fleet / demo showcase
 
     model_config = {"from_attributes": True}
 

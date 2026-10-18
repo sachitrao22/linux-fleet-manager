@@ -4,6 +4,7 @@ Fleet Manager agent — runs on any Linux, macOS or Windows machine.
 
   python agent.py --server http://CONTROL_PLANE:8000 --token AGENT_TOKEN
   python agent.py --once          # print one sample and exit (sanity check)
+  python agent.py --safe ...      # only built-in read-only actions, never shell commands
 
 What it does:
   * Registers with the control plane and saves its device id in ~/.fleet-agent/
@@ -15,7 +16,13 @@ What it does:
     timeout, and sends back exit code + output. Command ids already executed are
     remembered, so a re-delivered command returns its stored result instead of
     running twice (the server delivers at-least-once).
-  * Reconnects with exponential backoff + jitter.
+  * Built-in read-only actions (@uptime, @disk, @top, …) are implemented in Python with
+    psutil — no shell, same output on every OS. With --safe, the agent refuses everything
+    else, so even a compromised server can't run arbitrary code on this machine.
+  * Reconnects with exponential backoff + jitter. Stops for good if the server says the
+    token is invalid or the demo session has ended.
+
+Runs on Python 3.9+ (the version macOS ships as /usr/bin/python3).
 
 Metrics come from psutil, which reads /proc on Linux, sysctl/Mach APIs on macOS
 and Win32 APIs on Windows — one code path for every OS.
@@ -28,6 +35,8 @@ import os
 import platform
 import random
 import socket
+import ssl
+import sys
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -43,6 +52,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [agent] %(levelname)s %(message)s",
                     datefmt="%H:%M:%S")
 log = logging.getLogger("fleet-agent")
+logging.getLogger("httpx").setLevel(logging.WARNING)      # no line per HTTP request
 
 STATE_DIR = Path(os.environ.get("FLEET_AGENT_HOME", Path.home() / ".fleet-agent"))
 COMMAND_TIMEOUT = 60
@@ -152,19 +162,162 @@ class Collector:
         }
 
 
+# ── Built-in read-only actions (keep names in sync with app/actions.py) ──────
+
+def _size(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return str(n)
+
+
+def action_uptime() -> str:
+    boot = psutil.boot_time()
+    secs = int(time.time() - boot)
+    days, rem = divmod(secs, 86400)
+    hours, rem = divmod(rem, 3600)
+    lines = [f"Up {days}d {hours}h {rem // 60}m (since {datetime.fromtimestamp(boot):%Y-%m-%d %H:%M})"]
+    try:
+        lines.append(f"Logged-in users: {len(psutil.users())}")
+    except Exception:
+        pass
+    try:
+        lines.append("Load average (1/5/15 min): " + " / ".join(f"{x:.2f}" for x in psutil.getloadavg()))
+    except (AttributeError, OSError):
+        pass
+    return "\n".join(lines)
+
+
+def action_os() -> str:
+    vm = psutil.virtual_memory()
+    rows = [
+        ("Hostname", socket.gethostname()),
+        ("OS", distro_name()),
+        ("Kernel / release", platform.release()),
+        ("Architecture", platform.machine()),
+        ("CPU cores", f"{psutil.cpu_count(logical=False) or '?'} physical, {psutil.cpu_count()} logical"),
+        ("Memory", _size(vm.total)),
+        ("Python", platform.python_version()),
+    ]
+    return "\n".join(f"{k:<18}{v}" for k, v in rows)
+
+
+def action_memory() -> str:
+    vm, sw = psutil.virtual_memory(), psutil.swap_memory()
+    return (f"{'':<8}{'Total':>10}{'Used':>10}{'Free':>10}{'Use%':>7}\n"
+            f"{'RAM':<8}{_size(vm.total):>10}{_size(vm.total - vm.available):>10}{_size(vm.available):>10}{vm.percent:>6.0f}%\n"
+            f"{'Swap':<8}{_size(sw.total):>10}{_size(sw.used):>10}{_size(sw.free):>10}{sw.percent:>6.0f}%")
+
+
+def action_disk() -> str:
+    out = [f"{'Mount':<28}{'Size':>10}{'Used':>10}{'Free':>10}{'Use%':>7}"]
+    seen = set()
+    for part in psutil.disk_partitions(all=False):
+        if part.device in seen or part.fstype in ("squashfs", "tmpfs", "devtmpfs", "overlay", ""):
+            continue
+        try:
+            u = psutil.disk_usage(part.mountpoint)
+        except (PermissionError, OSError):
+            continue
+        seen.add(part.device)
+        out.append(f"{part.mountpoint[:27]:<28}{_size(u.total):>10}{_size(u.used):>10}{_size(u.free):>10}{u.percent:>6.0f}%")
+        if len(out) > 15:
+            break
+    if len(out) == 1:      # containers often expose only an overlay root
+        u = psutil.disk_usage(root_path())
+        out.append(f"{root_path():<28}{_size(u.total):>10}{_size(u.used):>10}{_size(u.free):>10}{u.percent:>6.0f}%")
+    return "\n".join(out)
+
+
+def action_top() -> str:
+    procs = []
+    for p in psutil.process_iter(["pid", "name"]):
+        try:
+            p.cpu_percent(None)          # first call primes the counter
+            procs.append(p)
+        except (psutil.Error, OSError):
+            pass
+    time.sleep(0.5)
+    rows = []
+    for p in procs:
+        try:
+            rows.append((p.cpu_percent(None), p.memory_percent(), p.info["pid"], p.info["name"] or "?"))
+        except (psutil.Error, OSError):
+            pass
+    rows.sort(reverse=True)
+    out = [f"{'PID':>7}  {'CPU%':>6}  {'MEM%':>6}  NAME"]
+    out += [f"{pid:>7}  {cpu:>6.1f}  {mem:>6.1f}  {name[:40]}" for cpu, mem, pid, name in rows[:10]]
+    return "\n".join(out) + f"\n\n{len(rows)} processes visible to this agent"
+
+
+def action_network() -> str:
+    out = [f"{'Interface':<20}IPv4 address"]
+    for name, addrs in psutil.net_if_addrs().items():
+        for a in addrs:
+            if a.family == socket.AF_INET and not a.address.startswith("127."):
+                out.append(f"{name[:19]:<20}{a.address}")
+    io = psutil.net_io_counters()
+    out.append(f"\nTotal since boot: received {_size(io.bytes_recv)}, sent {_size(io.bytes_sent)}")
+    return "\n".join(out)
+
+
+ACTIONS = {
+    "@uptime": action_uptime,
+    "@os": action_os,
+    "@memory": action_memory,
+    "@disk": action_disk,
+    "@top": action_top,
+    "@network": action_network,
+}
+
+
+class AgentStop(Exception):
+    """The server refused this agent for good (bad token, demo session over, limit reached)."""
+
+
+# WebSocket close codes the server uses to mean "don't come back"
+FINAL_CLOSE_CODES = {
+    4401: "the server rejected this agent's token",
+    4410: "your demo session has ended — thanks for trying it! "
+          "To try again, open the dashboard and click 'Add my device'.",
+}
+
+
+def check_final_close(code: Optional[int]) -> None:
+    if code in FINAL_CLOSE_CODES:
+        raise AgentStop(FINAL_CLOSE_CODES[code])
+
+
+def tls_context() -> ssl.SSLContext:
+    """Certificates from certifi when available: python.org builds on macOS ship without a
+    usable system CA store, so wss:// would otherwise fail to verify the server."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
 # ── The agent ────────────────────────────────────────────────────────────────
 
 class Agent:
-    def __init__(self, server: str, token: Optional[str], interval: int, buffer_size: int, tags: dict):
+    def __init__(self, server: str, token: Optional[str], interval: int, buffer_size: int, tags: dict,
+                 name: Optional[str] = None, safe: bool = False, device_id: Optional[str] = None):
         self.server = server.rstrip("/")
         self.token = token
         self.interval = interval
         self.tags = tags
+        self.name = name or socket.gethostname()
+        self.safe = safe
+        self.pinned_id = device_id
         self.state = State(STATE_DIR)
         self.collector = Collector()
         self.buffer: deque = deque(maxlen=buffer_size)   # bounded: oldest dropped when full
         self.dropped = 0
-        self.new_sample = asyncio.Event()
+        # Created inside run(): on Python 3.9 an Event made before asyncio.run() binds
+        # to a different event loop and fails when awaited.
+        self.new_sample: Optional[asyncio.Event] = None
 
     @property
     def ws_base(self) -> str:
@@ -174,8 +327,8 @@ class Agent:
 
     async def register(self) -> str:
         payload = {
-            "device_id": self.state.device_id_for(self.server),
-            "hostname": socket.gethostname(),
+            "device_id": self.state.device_id_for(self.server) or self.pinned_id,
+            "hostname": self.name,
             "ip_address": local_ip(urlparse(self.server).hostname),
             "os": platform.system(),
             "distro": distro_name(),
@@ -185,8 +338,12 @@ class Agent:
         headers = {"X-Agent-Token": self.token} if self.token else {}
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(f"{self.server}/devices/register", json=payload, headers=headers)
-        if resp.status_code in (401, 403):
-            raise PermissionError(resp.json().get("detail", resp.text))
+        if resp.status_code in (401, 403, 410, 429):
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except ValueError:
+                detail = resp.text[:200]
+            raise AgentStop(detail)
         resp.raise_for_status()
         device_id = resp.json()["id"]
         self.state.set_device_id(self.server, device_id)
@@ -225,6 +382,15 @@ class Agent:
             self.dropped = 0
 
     async def run_command(self, command: str) -> dict:
+        action = ACTIONS.get(command.strip())
+        if action is not None:
+            try:
+                return {"exit_code": 0, "result": (await asyncio.to_thread(action))[:MAX_OUTPUT]}
+            except Exception as exc:
+                return {"exit_code": 1, "result": f"ERROR: {exc}"}
+        if self.safe:
+            return {"exit_code": 126, "result": "Refused: this agent runs in safe mode and only runs its "
+                    "built-in read-only actions (" + ", ".join(ACTIONS) + ")."}
         proc = await asyncio.create_subprocess_shell(
             command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         try:
@@ -254,6 +420,7 @@ class Agent:
             await ws.send(json.dumps({"type": "command_result", "command_id": cmd_id, **result}))
 
     async def run(self) -> None:
+        self.new_sample = asyncio.Event()
         asyncio.create_task(self.sampler())
         backoff = 1
         while True:
@@ -262,27 +429,39 @@ class Agent:
                 url = f"{self.ws_base}/ws/{device_id}"
                 # Token in a header, never the URL (URLs get written to access logs)
                 headers = {"X-Agent-Token": self.token} if self.token else None
+                tls = {"ssl": tls_context()} if url.startswith("wss://") else {}
                 async with connect(url, additional_headers=headers, ping_interval=20,
-                                   ping_timeout=20, max_size=2 ** 20) as ws:
-                    log.info("connected to %s as %s (%s)", self.server, socket.gethostname(), device_id)
+                                   ping_timeout=20, max_size=2 ** 20, **tls) as ws:
+                    log.info("connected to %s as %s (%s)%s", self.server, self.name, device_id,
+                             " — safe mode: built-in read-only actions only" if self.safe else "")
                     backoff = 1
                     self.new_sample.set()   # flush anything buffered while offline
                     tasks = [asyncio.create_task(self.sender(ws)), asyncio.create_task(self.receiver(ws))]
-                    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                    for t in pending:
-                        t.cancel()
+                    try:
+                        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                    finally:
+                        # Always cancel and collect both tasks — also on Ctrl+C — so no
+                        # "Task exception was never retrieved" noise is printed
+                        for t in tasks:
+                            t.cancel()
+                        await asyncio.gather(*tasks, return_exceptions=True)
                     for t in done:
-                        if t.exception():
+                        if not t.cancelled() and t.exception():
                             raise t.exception()
+                    check_final_close(ws.close_code)
                     log.warning("server closed the connection")
-            except PermissionError as exc:
-                log.error("rejected by server: %s — check --token / the server's FLEET_MODE", exc)
-                backoff = 60
+            except AgentStop:
+                raise
             except InvalidStatus as exc:
                 log.error("WebSocket rejected (HTTP %s) — check --token", exc.response.status_code)
                 backoff = 60
-            except (OSError, ConnectionClosed, httpx.HTTPError) as exc:
+            except ConnectionClosed as exc:
+                check_final_close(exc.rcvd.code if exc.rcvd else None)
+                log.warning("connection lost: %s", exc)
+            except (OSError, httpx.HTTPError) as exc:
                 log.warning("connection problem: %s", exc or type(exc).__name__)
+            except Exception as exc:     # e.g. a proxy's HTML page while the server wakes up
+                log.warning("unexpected response: %s: %s", type(exc).__name__, exc)
             # Exponential backoff with jitter: a restarted server isn't hit by every agent at once
             delay = min(backoff, 60) * random.uniform(0.5, 1.5)
             log.info("retrying in %.0fs (%d sample(s) buffered)", delay, len(self.buffer))
@@ -307,8 +486,19 @@ def main() -> None:
     p.add_argument("--interval", type=int, default=10, help="seconds between samples")
     p.add_argument("--buffer", type=int, default=1000, help="max samples kept while offline")
     p.add_argument("--tag", action="append", metavar="KEY=VALUE", help="label, repeatable: --tag env=prod")
+    p.add_argument("--name", default=os.environ.get("FLEET_AGENT_NAME"),
+                   help="name shown in the dashboard (default: this machine's hostname)")
+    p.add_argument("--safe", action="store_true", default=os.environ.get("FLEET_SAFE") == "1",
+                   help="only run built-in read-only actions, never shell commands")
+    p.add_argument("--device-id", default=os.environ.get("FLEET_DEVICE_ID"),
+                   help="use this device id when none is saved yet (owner token only)")
     p.add_argument("--once", action="store_true", help="print one sample and exit")
+    p.add_argument("--action", choices=sorted(ACTIONS), help="run one built-in action locally and exit")
     args = p.parse_args()
+
+    if args.action:
+        print(ACTIONS[args.action]())
+        return
 
     if args.once:
         c = Collector()
@@ -318,11 +508,15 @@ def main() -> None:
         return
 
     # (On Windows, Python's default Proactor event loop supports subprocesses, so no extra setup.)
-    agent = Agent(args.server, args.token, args.interval, args.buffer, parse_tags(args.tag))
+    agent = Agent(args.server, args.token, args.interval, args.buffer, parse_tags(args.tag),
+                  name=args.name, safe=args.safe, device_id=args.device_id)
     try:
         asyncio.run(agent.run())
     except KeyboardInterrupt:
         log.info("stopped")
+    except AgentStop as exc:
+        log.warning("Stopped: %s", exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

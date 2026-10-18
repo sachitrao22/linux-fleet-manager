@@ -1,0 +1,38 @@
+# Render Blueprint for the public demo API: New → Blueprint → pick this repo.
+# Free plan: sleeps after 15 minutes without traffic and takes about a minute to wake.
+# The database is external (Neon, free and permanent) — Render's free Postgres is
+# deleted after 30 days. Step-by-step guide: docs/DEPLOY.md
+services:
+  - type: web
+    name: fleet-manager-api
+    runtime: python
+    plan: free
+    region: ohio                 # create the Neon database in AWS US East 2 (Ohio) to match
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash deploy/render-start.sh
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: DEMO_MODE
+        value: "true"
+      - key: FLEET_MODE            # agents only: a public server must not SSH anywhere
+        value: agent
+      - key: RETENTION_HOURS       # keep the free database small
+        value: "24"
+      - key: SHOWCASE_DEVICE_ID    # keeps the live demo device's identity across restarts
+        value: 6f1f5c2a-0d4e-4c8b-9a51-3b7e2f9d1c00
+      - key: SHOWCASE_NAME
+        value: live-demo-server
+      - key: SECRET_KEY
+        generateValue: true
+      - key: AGENT_TOKEN
+        generateValue: true
+      - key: DATABASE_URL          # paste the Neon connection string
+        sync: false
+      - key: ADMIN_USERNAME        # your login for the dashboard
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGINS          # your Vercel URL, e.g. https://fleet-manager.vercel.app
+        sync: false

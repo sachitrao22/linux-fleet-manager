@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linux Fleet Manager</title>
+<meta name="description" content="Monitor and manage machines from one dashboard. Live demo: run a command on a real server or connect your own computer.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232346a0'/%3E%3Cpath d='M7 20h4l3-9 4 13 3-7h4' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script src="config.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #edf0f3; --surface: #ffffff; --raised: #f6f8fa; --line: #d6dce3; --line-2: #c4ccd6;
+  --ink: #18212c; --ink-2: #4d5867; --ink-3: #737d8c;
+  --accent: #2346a0; --accent-ink: #ffffff; --accent-soft: #e4eaf8;
+  --ok: #17845a; --warn: #9a6210; --bad: #be3b2b;
+  --ok-soft: #e1f2ea; --warn-soft: #fbf0dc; --bad-soft: #f9e4e0;
+  --term: #111a24; --term-ink: #d7e2ee; --term-dim: #8796a8;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r-lg: 14px; --r: 8px; --r-sm: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0f151c; --surface: #17202a; --raised: #1c2732; --line: #2a3542; --line-2: #3a4757;
+    --ink: #e6ecf2; --ink-2: #a9b4c0; --ink-3: #828d9b;
+    --accent: #86a5ff; --accent-ink: #0f151c; --accent-soft: #1f2c4a;
+    --ok: #4cc38a; --warn: #e2a83e; --bad: #f07560;
+    --ok-soft: #14322a; --warn-soft: #33290f; --bad-soft: #3a1c18;
+    --term: #0b1117; --term-ink: #d7e2ee; --term-dim: #7d8b9b;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 var(--sans); }
+a { color: var(--accent); text-underline-offset: 2px; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+.hide { display: none !important; }
+.muted { color: var(--ink-2); }
+.small { font-size: 14px; }
+.tiny { font-size: 13px; color: var(--ink-3); }
+code, .mono { font-family: var(--mono); font-size: .92em; }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: var(--r);
+  padding: 9px 16px; cursor: pointer; font-weight: 500; text-decoration: none; line-height: 1.2; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-quiet { background: var(--surface); border-color: var(--line-2); color: var(--ink); }
+.btn-quiet:hover { border-color: var(--ink-3); }
+.btn-small { padding: 6px 12px; font-size: 14px; }
+.btn:disabled { opacity: .55; cursor: default; filter: none; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+/* top bar */
+.top { border-bottom: 1px solid var(--line); background: var(--surface); }
+.top .wrap { display: flex; align-items: center; gap: 16px; min-height: 56px; }
+.brand { font-weight: 600; letter-spacing: -.01em; }
+.brand small { font-weight: 400; color: var(--ink-3); margin-left: 6px; }
+.top .spacer { flex: 1; }
+.top nav { display: flex; gap: 18px; align-items: center; font-size: 14px; }
+.top nav a { color: var(--ink-2); text-decoration: none; }
+.top nav > *, .brand { white-space: nowrap; }
+.top nav a:hover { color: var(--ink); }
+
+/* hero */
+.hero { padding: 56px 0 40px; }
+.hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; }
+.hero h1 { font-size: clamp(32px, 4.2vw, 46px); line-height: 1.08; letter-spacing: -.025em; font-weight: 600; margin: 0 0 18px; max-width: 15ch; }
+.hero p.lede { font-size: 18px; color: var(--ink-2); margin: 0 0 26px; max-width: 46ch; }
+.hero .ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+.hero .fine { margin-top: 18px; }
+
+/* live device card (hero) */
+.livecard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px 22px 18px; }
+.livecard header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.livecard .name { font-weight: 600; }
+.livecard .sub { font-size: 13px; color: var(--ink-3); }
+.bigcpu { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 2px; }
+.bigcpu b { font-size: 44px; font-weight: 500; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.bigcpu span { color: var(--ink-2); }
+.spark { width: 100%; height: 96px; display: block; }
+.minis { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.mini .lab { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); margin-bottom: 5px; }
+.track { height: 6px; border-radius: 3px; background: var(--raised); border: 1px solid var(--line); overflow: hidden; }
+.track i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .6s ease; }
+.track.warning i { background: var(--warn); } .track.critical i { background: var(--bad); }
+
+/* status pill */
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.status.online { color: var(--ok); } .status.online::before { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.status.offline { color: var(--ink-3); }
+.status.unreachable { color: var(--bad); } .status.unreachable::before { background: var(--bad); }
+
+/* sections */
+section.block { padding: 36px 0; }
+section.block h2 { font-size: 24px; letter-spacing: -.015em; font-weight: 600; margin: 0 0 6px; }
+section.block > .wrap > p.intro { color: var(--ink-2); margin: 0 0 22px; max-width: 70ch; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
+
+/* device workbench */
+.bench { display: grid; grid-template-columns: 260px 1fr; min-height: 420px; }
+.devlist { border-right: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.devlist button { text-align: left; background: none; border: 1px solid transparent; border-radius: var(--r); padding: 10px 12px; cursor: pointer; }
+.devlist button:hover { background: var(--raised); }
+.devlist button[aria-current="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.devlist .dn { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devlist .dm { font-size: 13px; color: var(--ink-3); display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+.tag { font-size: 12px; font-weight: 500; padding: 1px 7px; border-radius: 99px; background: var(--raised); color: var(--ink-2); border: 1px solid var(--line); }
+.tag.yours { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.tag.live { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.devlist .add { margin-top: auto; }
+.devmain { padding: 20px 22px 22px; min-width: 0; }
+.devhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.devhead h3 { margin: 0; font-size: 20px; font-weight: 600; }
+.devhead .meta { color: var(--ink-3); font-size: 14px; margin-top: 2px; }
+.charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 18px 0 6px; }
+.chart h4 { margin: 0; font-size: 13px; font-weight: 500; color: var(--ink-2); display: flex; justify-content: space-between; }
+.chart h4 b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart { position: relative; }
+.chart svg { width: 100%; height: 92px; display: block; overflow: visible; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 2px 8px; font-size: 12px; white-space: nowrap; display: none; z-index: 2; }
+
+.actions h4 { font-size: 15px; font-weight: 600; margin: 20px 0 4px; }
+.actions .hint { color: var(--ink-2); font-size: 14px; margin: 0 0 12px; }
+.actbtns { display: flex; flex-wrap: wrap; gap: 8px; }
+.actbtns button { background: var(--raised); border: 1px solid var(--line-2); border-radius: var(--r); padding: 7px 13px; cursor: pointer; font-size: 14px; }
+.actbtns button:hover { border-color: var(--accent); color: var(--accent); }
+.actbtns button:disabled { opacity: .5; cursor: default; color: inherit; border-color: var(--line-2); }
+.shellrow { display: flex; gap: 8px; margin-top: 10px; }
+.shellrow input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 14px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); padding: 8px 10px; }
+
+/* the command journey — the one bold element */
+.journey { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 18px 0 0; position: relative; }
+.journey .stage { padding: 12px 14px 12px 0; position: relative; }
+.journey .stage::before { content: ""; display: block; height: 4px; border-radius: 2px; background: var(--line); margin-bottom: 10px; transition: background .35s ease; }
+.journey .stage.on::before { background: var(--accent); }
+.journey .stage.fail::before { background: var(--bad); }
+.journey .stage.wait::before { background: linear-gradient(90deg, var(--accent) 0 40%, var(--line) 40%); background-size: 250% 100%; animation: wait 1.4s linear infinite; }
+@keyframes wait { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) { .journey .stage.wait::before { animation: none; background: var(--accent-soft); } .track i { transition: none; } }
+.journey .stage b { display: block; font-size: 14px; font-weight: 600; }
+.journey .stage span { display: block; font-size: 13px; color: var(--ink-3); }
+.journey .stage.off b { color: var(--ink-3); font-weight: 500; }
+.term { background: var(--term); color: var(--term-ink); border-radius: var(--r); padding: 14px 16px; margin-top: 10px;
+  font: 13px/1.5 var(--mono); white-space: pre; overflow-x: auto; max-height: 320px; overflow-y: auto; }
+.term .cmdline { color: var(--term-dim); }
+.term:empty { display: none; }
+details.history { margin-top: 16px; font-size: 14px; }
+details.history summary { cursor: pointer; color: var(--ink-2); }
+.hist { list-style: none; padding: 0; margin: 8px 0 0; }
+.hist li { border-top: 1px solid var(--line); padding: 8px 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.hist .c { font-family: var(--mono); font-size: 13px; }
+.badge { font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 99px; }
+.badge.executed { background: var(--ok-soft); color: var(--ok); }
+.badge.failed, .badge.critical { background: var(--bad-soft); color: var(--bad); }
+.badge.pending, .badge.delivered, .badge.warning { background: var(--warn-soft); color: var(--warn); }
+.empty { padding: 40px 10px; text-align: center; color: var(--ink-2); }
+
+/* add your computer */
+.addgrid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 0; }
+.addmain { padding: 24px; border-right: 1px solid var(--line); min-width: 0; }
+.addside { padding: 24px; font-size: 15px; color: var(--ink-2); }
+.addside h3 { color: var(--ink); font-size: 15px; margin: 0 0 8px; }
+.addside ul { margin: 0 0 16px; padding-left: 18px; }
+.addside li { margin-bottom: 6px; }
+.ostabs { display: inline-flex; border: 1px solid var(--line-2); border-radius: var(--r); overflow: hidden; margin-bottom: 18px; }
+.ostabs button { background: var(--surface); border: 0; padding: 7px 16px; cursor: pointer; font-size: 14px; }
+.ostabs button + button { border-left: 1px solid var(--line-2); }
+.ostabs button[aria-selected="true"] { background: var(--ink); color: var(--surface); }
+ol.steps { padding-left: 22px; margin: 0; }
+ol.steps > li { margin-bottom: 16px; padding-left: 4px; }
+ol.steps > li::marker { font-weight: 600; }
+.cmdbox { display: flex; align-items: stretch; background: var(--term); border-radius: var(--r); margin-top: 8px; overflow: hidden; }
+.cmdbox code { flex: 1; min-width: 0; color: var(--term-ink); padding: 12px 14px; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+.cmdbox button { background: #22303f; color: #fff; border: 0; padding: 0 16px; cursor: pointer; font-size: 14px; font-weight: 500; }
+.cmdbox button:hover { background: #2c3d50; }
+.waitline { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+.dot.ok { background: var(--ok); animation: none; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+.mobilenote { background: var(--warn-soft); color: var(--warn); border-radius: var(--r); padding: 10px 14px; font-size: 14px; margin-bottom: 16px; display: none; }
+@media (pointer: coarse) and (max-width: 820px) { .mobilenote { display: block; } }
+
+/* fleet table */
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 11px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+tbody tr { cursor: pointer; } tbody tr:hover { background: var(--raised); }
+tbody tr:last-child td { border-bottom: 0; }
+.cellbar { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.cellbar .track { width: 56px; }
+.twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+/* grid items may shrink below their content, so wide tables scroll inside instead of widening the page */
+.twocol > *, .bench > *, .addgrid > *, .hero .wrap > * { min-width: 0; }
+.alerts li { list-style: none; border-top: 1px solid var(--line); padding: 10px 0; font-size: 14px; }
+.alerts { padding: 0 20px 6px; margin: 0; }
+.alerts li:first-child { border-top: 0; }
+.panel > h3 { font-size: 16px; margin: 0; padding: 16px 20px 8px; }
+
+/* how it works */
+.how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+.how h3 { font-size: 16px; margin: 0 0 6px; }
+.how p { margin: 0; color: var(--ink-2); font-size: 15px; }
+
+/* owner forms */
+form.stack { display: grid; gap: 10px; }
+.field { display: grid; gap: 4px; font-size: 14px; color: var(--ink-2); }
+.field input { width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r); padding: 9px 11px; color: var(--ink); }
+.err { color: var(--bad); font-size: 14px; min-height: 20px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.row .field { flex: 1; min-width: 140px; }
+
+/* overlays: waking screen, sign-in dialog */
+.overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 20; }
+.dialog { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 26px; width: min(440px, 100%); }
+.dialog h2 { margin: 0 0 8px; font-size: 21px; }
+.waking .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin: 18px 0 10px; }
+.waking .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 1s linear; }
+
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: var(--r); font-size: 14px; z-index: 30; max-width: calc(100% - 40px); }
+
+footer { padding: 36px 0 56px; color: var(--ink-3); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 22px; }
+
+@media (max-width: 900px) {
+  .hero .wrap, .addgrid, .twocol, .how { grid-template-columns: 1fr; }
+  .hero { padding-top: 36px; }
+  .bench { grid-template-columns: 1fr; }
+  .devlist { border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; overflow-x: auto; }
+  .devlist button { min-width: 180px; }
+  .devlist .add { margin-top: 0; }
+  .charts { grid-template-columns: 1fr; }
+  .addmain { border-right: 0; border-bottom: 1px solid var(--line); }
+  .col-os, .col-seen { display: none; }
+}
+@media (max-width: 560px) {
+  .journey { grid-template-columns: 1fr; }
+  .journey .stage { padding-bottom: 4px; }
+  .top nav .opt { display: none; }
+  .brand small { display: none; }
+  .wrap { padding: 0 16px; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <span class="brand">Linux Fleet Manager <small id="brand-sub"></small></span>
+    <span class="spacer"></span>
+    <nav>
+      <a class="opt" id="nav-github" href="https://github.com/sachitrao22/linux-fleet-manager" target="_blank" rel="noopener">Source code</a>
+      <span id="who" class="tiny"></span>
+      <button class="linkish small" id="signin-link" type="button">Owner sign in</button>
+      <button class="linkish small hide" id="signout" type="button">Sign out</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- PUBLIC DEMO: hero -->
+  <section class="hero hide" id="hero">
+    <div class="wrap">
+      <div>
+        <h1>A real server is reporting to this page right now.</h1>
+        <p class="lede">Linux Fleet Manager monitors and controls machines from one dashboard. Run a command on the live server below, or connect your own computer in about a minute. It's sandboxed and read-only.</p>
+        <div class="ctas">
+          <button class="btn btn-primary" id="cta-run" type="button">Run a command on it</button>
+          <button class="btn btn-quiet" id="cta-add" type="button">Add your computer</button>
+        </div>
+        <p class="fine tiny" id="hero-fine">Built by <a id="owner-link" href="https://github.com/sachitrao22" target="_blank" rel="noopener">Sachit Rao</a> with Python, FastAPI, WebSockets and PostgreSQL.</p>
+      </div>
+      <div class="livecard" id="livecard" aria-live="polite">
+        <header>
+          <div><div class="name" id="lc-name">Connecting…</div><div class="sub" id="lc-sub">&nbsp;</div></div>
+          <span class="status offline" id="lc-status">waiting</span>
+        </header>
+        <div class="bigcpu"><b id="lc-cpu">–</b><span>CPU now</span></div>
+        <svg class="spark" id="lc-spark" viewBox="0 0 400 96" preserveAspectRatio="none" role="img" aria-label="CPU over the last 10 minutes"></svg>
+        <div class="minis">
+          <div class="mini"><div class="lab"><span>Memory</span><span id="lc-mem">–</span></div><div class="track" id="lc-memt"><i style="width:0"></i></div></div>
+          <div class="mini"><div class="lab"><span>Disk</span><span id="lc-disk">–</span></div><div class="track" id="lc-diskt"><i style="width:0"></i></div></div>
+        </div>
+        <div class="tiny" style="margin-top:12px" id="lc-seen">&nbsp;</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- device workbench (both modes) -->
+  <section class="block" id="bench-section">
+    <div class="wrap">
+      <h2 id="bench-title">Try it</h2>
+      <p class="intro" id="bench-intro">Pick a device and run one of its built-in actions. Watch the command travel from this page to the device and back.</p>
+      <div class="panel bench">
+        <div class="devlist" id="devlist" role="list"></div>
+        <div class="devmain" id="devmain">
+          <div class="empty" id="dev-empty">No devices yet.</div>
+          <div id="dev-detail" class="hide">
+            <div class="devhead">
+              <div><h3 id="d-name"></h3><div class="meta" id="d-meta"></div></div>
+              <div class="row" style="align-items:center">
+                <span class="status" id="d-status"></span>
+                <button class="btn btn-quiet btn-small hide" id="d-remove" type="button">Remove</button>
+              </div>
+            </div>
+            <div class="charts">
+              <div class="chart" data-metric="cpu_pct"><h4><span>CPU</span><b data-now></b></h4><svg></svg><div class="tip"></div></div>
+              <div class="chart" data-metric="mem_pct"><h4><span>Memory</span><b data-now></b></h4><svg></svg><div class="tip"></div></div>
+              <div class="chart" data-metric="disk_pct"><h4><span>Disk</span><b data-now></b></h4><svg></svg><div class="tip"></div></div>
+            </div>
+            <div class="tiny">Last 60 minutes. The dashed line is the warning threshold.</div>
+
+            <div class="actions" id="d-actions">
+              <h4>Run a command</h4>
+              <p class="hint" id="d-hint">These actions are built into the agent and only read information.</p>
+              <div class="actbtns" id="actbtns"></div>
+              <form class="shellrow hide" id="shellform">
+                <input id="shellin" placeholder="Shell command, e.g. df -h" autocomplete="off" aria-label="Shell command">
+                <button class="btn btn-primary btn-small" type="submit">Run</button>
+              </form>
+              <div class="journey" id="journey" aria-live="polite">
+                <div class="stage off" data-s="saved"><b>Saved to the queue</b><span>Waiting for a command</span></div>
+                <div class="stage off" data-s="sent"><b>Sent to the device</b><span>&nbsp;</span></div>
+                <div class="stage off" data-s="done"><b>Result back</b><span>&nbsp;</span></div>
+              </div>
+              <div class="term" id="term"></div>
+              <details class="history" id="history"><summary>Recent commands on this device</summary><ul class="hist" id="hist"></ul></details>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PUBLIC DEMO: add your computer -->
+  <section class="block hide" id="add-section">
+    <div class="wrap">
+      <h2>Add your computer</h2>
+      <p class="intro">Your computer joins a private sandbox that only you can see. It reports CPU, memory and disk, and can run the same read-only actions. Nothing is installed permanently.</p>
+      <div class="panel">
+        <div class="addgrid">
+          <div class="addmain">
+            <div class="mobilenote">Open this page on a laptop or desktop to add it. From your phone you can still run commands on the live server above.</div>
+            <div id="add-start">
+              <p style="margin-top:0">You'll paste one command into a terminal. It takes about a minute.</p>
+              <button class="btn btn-primary" id="add-go" type="button">Get my command</button>
+              <div class="err" id="add-err"></div>
+            </div>
+            <div id="add-flow" class="hide">
+              <div class="ostabs" role="tablist" aria-label="Operating system">
+                <button role="tab" data-os="mac" type="button">macOS</button>
+                <button role="tab" data-os="linux" type="button">Linux</button>
+                <button role="tab" data-os="win" type="button">Windows</button>
+              </div>
+              <ol class="steps">
+                <li id="step-open"></li>
+                <li>Paste this command and press Enter:
+                  <div class="cmdbox"><code id="cmd-text"></code><button type="button" id="copy-btn">Copy</button></div>
+                </li>
+                <li>Leave the window open. Your computer appears here when it connects.
+                  <div class="waitline" id="waitline"><span class="dot"></span><span id="waittext">Waiting for your computer…</span></div>
+                </li>
+              </ol>
+            </div>
+          </div>
+          <div class="addside">
+            <h3>What the command does</h3>
+            <ul>
+              <li>Creates a temporary folder with its own Python environment</li>
+              <li>Downloads the agent (<a id="agent-src" href="#" target="_blank" rel="noopener">read it first</a>) and runs it in that window</li>
+              <li>Runs in safe mode: it reports stats and answers the built-in actions above, and refuses anything else</li>
+            </ul>
+            <h3>How to stop it</h3>
+            <ul>
+              <li>Press <b>Ctrl+C</b> in that window. The folder is deleted automatically.</li>
+              <li id="expiry-li">Your sandbox ends after <span id="ttl">60</span> minutes and its data is deleted.</li>
+            </ul>
+            <h3>Requirements</h3>
+            <ul><li id="req-li">Python 3.9 or newer.</li></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- fleet overview + alerts (both modes) -->
+  <section class="block" id="fleet-section">
+    <div class="wrap">
+      <h2>Fleet</h2>
+      <p class="intro" id="fleet-intro">Every device you can see, refreshed every 5 seconds.</p>
+      <div class="twocol">
+        <div class="panel" style="grid-column: 1 / -1">
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Device</th><th>Status</th><th class="col-os">OS</th><th>CPU</th><th>Memory</th><th>Disk</th><th class="col-seen">Last report</th></tr></thead>
+              <tbody id="fleet"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel"><h3>Open alerts</h3><ul class="alerts" id="alerts"></ul></div>
+        <div class="panel" id="owner-add">
+          <h3>Add a device</h3>
+          <div style="padding: 0 20px 20px">
+            <p class="small muted" style="margin-top:0">On the machine (Linux, macOS or Windows), with the <code>agent/</code> folder copied over:</p>
+            <div class="cmdbox"><code id="owner-agent-cmd"></code></div>
+            <form id="ssh-form" class="stack hide" style="margin-top:18px">
+              <p class="small muted" style="margin:0">Or add a Linux/macOS host the server reaches over SSH (nothing installed on it):</p>
+              <div class="row">
+                <label class="field">Name<input id="s-host" required></label>
+                <label class="field">IP address<input id="s-ip" required></label>
+              </div>
+              <div class="row">
+                <label class="field">SSH user<input id="s-user" required></label>
+                <label class="field" style="max-width:110px">Port<input id="s-port" type="number" value="22" min="1" max="65535"></label>
+                <button class="btn btn-primary" type="submit">Add SSH host</button>
+              </div>
+              <div class="err" id="ssh-err"></div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PUBLIC DEMO: how it works -->
+  <section class="block hide" id="how-section">
+    <div class="wrap">
+      <h2>How it works</h2>
+      <p class="intro">Three parts, all in the <a href="https://github.com/sachitrao22/linux-fleet-manager" target="_blank" rel="noopener">repository</a>, with the reasoning in <a href="https://github.com/sachitrao22/linux-fleet-manager/blob/main/DESIGN_DECISIONS.md" target="_blank" rel="noopener">DESIGN_DECISIONS.md</a>.</p>
+      <div class="how">
+        <div><h3>An agent on each machine</h3><p>A small Python program reads CPU, memory, disk and network every 10 seconds and keeps one WebSocket open to the server. If the connection drops, it keeps measuring and sends the backlog when it reconnects.</p></div>
+        <div><h3>A control plane</h3><p>FastAPI and PostgreSQL. Commands are saved before they're sent, re-sent until the device answers, and never run twice. Alerts open, escalate and resolve on their own. It can also reach machines over SSH with nothing installed.</p></div>
+        <div><h3>This dashboard</h3><p>Plain HTML and JavaScript calling the same API anyone could. The live server you see is the API's own host, running the agent in safe mode.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- cost (both modes) -->
+  <section class="block" id="cost-section">
+    <div class="wrap">
+      <h2>What it saves</h2>
+      <p class="intro">Monitoring a fleet with CloudWatch custom metrics is billed per metric. Self-hosting costs one small server.</p>
+      <div class="panel" style="padding:20px 22px">
+        <div class="row">
+          <label class="field">Devices<input id="c-dev" type="number" min="1" value="50"></label>
+          <label class="field">Metrics per device<input id="c-met" type="number" min="1" value="25"></label>
+          <label class="field">Self-hosting, $ per month<input id="c-host" type="number" min="0" value="15"></label>
+        </div>
+        <p style="font-size:18px;margin:18px 0 6px">CloudWatch: <b id="c-cw"></b> a month. Self-hosted: <b id="c-self"></b>. You save <b id="c-save"></b>.</p>
+        <p class="tiny" style="margin:0">Estimate at $0.30 per custom metric per month (first pricing tier; check current AWS pricing). Excludes API calls, alarms and logs.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span id="foot-left">Linux Fleet Manager</span>
+    <span><a href="https://github.com/sachitrao22/linux-fleet-manager" target="_blank" rel="noopener">GitHub</a> &nbsp; <a id="api-docs" href="#" target="_blank" rel="noopener">API docs</a></span>
+  </div>
+</footer>
+
+<!-- waking screen -->
+<div class="overlay hide" id="waking" role="status" aria-live="polite">
+  <div class="dialog waking">
+    <h2 id="wake-title">Starting the demo server</h2>
+    <p class="muted" id="wake-text" style="margin:0">It runs on free hosting that sleeps when nobody is visiting. Waking up takes about a minute.</p>
+    <div class="bar"><i id="wake-bar"></i></div>
+    <div class="tiny" id="wake-elapsed">0 s</div>
+    <button class="btn btn-quiet btn-small hide" id="wake-retry" type="button" style="margin-top:12px">Try again</button>
+  </div>
+</div>
+
+<!-- sign-in / first admin -->
+<div class="overlay hide" id="signin">
+  <div class="dialog">
+    <h2 id="signin-title">Sign in</h2>
+    <p class="muted small" id="signin-sub" style="margin-top:0"></p>
+    <form class="stack" id="signin-form">
+      <label class="field">Username<input id="u" autocomplete="username" required></label>
+      <label class="field">Password<input id="p" type="password" autocomplete="current-password" minlength="8" required></label>
+      <div class="err" id="signin-err"></div>
+      <div class="row"><button class="btn btn-primary" type="submit" id="signin-btn">Sign in</button>
+        <button class="btn btn-quiet" type="button" id="signin-cancel">Cancel</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="toast hide" id="toast" role="status"></div>
+
+<script>
+"use strict";
+const API = String(window.FLEET_API || "").replace(/\/+$/, "");
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+const S = {
+  health: null, me: { kind: "anonymous" }, adminToken: store.get("fleet_admin_token"),
+  demo: store.get("fleet_demo_session"), devices: [], actions: [], selected: null,
+  running: null, timer: null, knownMine: new Set(),
+};
+const THRESH = { cpu_pct: [80, 95], mem_pct: [85, 95], disk_pct: [85, 95] };
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function ago(iso) {
+  if (!iso) return "never";
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  if (s < 10) return "just now";
+  if (s < 60) return Math.round(s) + " s ago";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " days ago";
+}
+const pct = (v) => (v == null ? "–" : Math.round(v) + "%");
+function level(metric, v) { if (v == null) return ""; const [w, c] = THRESH[metric]; return v >= c ? "critical" : v >= w ? "warning" : ""; }
+function bar(metric, v, cls = "") {
+  return `<span class="cellbar ${cls}"><span class="track ${level(metric, v)}"><i style="width:${Math.min(v || 0, 100)}%"></i></span>${pct(v)}</span>`;
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.remove("hide"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.add("hide"), 3500); }
+const isDemo = () => !!(S.health && S.health.demo);
+const isAdmin = () => S.me.kind === "admin";
+const isShowcase = (d) => !d.workspace_id;
+const isMine = (d) => !!d.workspace_id && S.me.kind === "demo";
+function deviceLabel(d) { return d.hostname; }
+
+function authHeader() {
+  if (S.adminToken) return { Authorization: "Bearer " + S.adminToken };
+  if (S.demo && S.demo.session_token) return { Authorization: "Bearer " + S.demo.session_token };
+  return {};
+}
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, authHeader(), opts.headers || {});
+  if (opts.json !== undefined) { headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(opts.json); }
+  const res = await fetch(API + path, { ...opts, headers });
+  let data = null;
+  try { data = res.status === 204 ? null : await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const msg = data && typeof data.detail === "string" ? data.detail : `Request failed (${res.status})`;
+    if (res.status === 401 && (S.adminToken || S.demo)) {
+      // Expired admin login or ended demo session: fall back to the public view
+      if (S.adminToken) { S.adminToken = null; store.del("fleet_admin_token"); toast("Signed out: your session expired."); }
+      else { S.demo = null; store.del("fleet_demo_session"); toast("Your demo session ended. Start a new one any time."); resetAddFlow(); }
+      if (!opts._retried) return api(path, { ...opts, _retried: true });
+    }
+    const err = new Error(msg); err.status = res.status; throw err;
+  }
+  return data;
+}
+
+// ── waking up (free hosting sleeps) ──────────────────────────────────────────
+async function waitForServer() {
+  const started = Date.now();
+  let shown = false;
+  const show = () => { shown = true; $("waking").classList.remove("hide"); };
+  const timer = setTimeout(show, 1500);
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    $("wake-elapsed").textContent = s + " s";
+    $("wake-bar").style.width = Math.min(100, s / 75 * 100) + "%";
+  }, 1000);
+  try {
+    while (true) {
+      try {
+        const res = await fetch(API + "/health", { cache: "no-store" });
+        if (res.ok) {
+          const h = await res.json();
+          if (h && h.status === "ok") return h;
+        }
+      } catch (e) { /* asleep, or the host's loading page without CORS headers */ }
+      if (Date.now() - started > 150000) {
+        show();
+        $("wake-title").textContent = "The demo server isn't answering";
+        $("wake-text").textContent = API ? "It may be redeploying or out of free hours. Please try again in a few minutes." :
+          "This copy of the dashboard has no API address. Set window.FLEET_API in config.js.";
+        $("wake-retry").classList.remove("hide");
+        await new Promise((r) => ($("wake-retry").onclick = r));
+        return waitForServer();
+      }
+      await new Promise((r) => setTimeout(r, shown ? 3000 : 600));
+    }
+  } finally { clearTimeout(timer); clearInterval(tick); $("waking").classList.add("hide"); }
+}
+
+// ── data refresh ─────────────────────────────────────────────────────────────
+async function refresh() {
+  const [devices, alerts] = await Promise.all([api("/devices"), api("/alerts?status=open")]);
+  S.devices = devices;
+  renderDevList(); renderFleet(); renderAlerts(alerts); renderLiveCard(); watchMyDevice();
+  if (!S.selected || !devices.find((d) => d.id === S.selected)) {
+    const pick = devices.find(isShowcase) || devices[0];
+    S.selected = pick ? pick.id : null;
+  }
+  renderDetail();
+}
+function schedule() {
+  clearInterval(S.timer);
+  S.timer = setInterval(() => { if (document.visibilityState === "visible") refresh().catch(() => {}); }, 5000);
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh().catch(() => {}); });
+
+// ── hero live card (the showcase device) ────────────────────────────────────
+async function renderLiveCard() {
+  if (!isDemo()) return;
+  const d = S.devices.find(isShowcase);
+  if (!d) { $("lc-name").textContent = "Live server is starting…"; return; }
+  const m = d.latest || {};
+  $("lc-name").textContent = deviceLabel(d);
+  $("lc-sub").textContent = [d.distro || d.os, d.arch].filter(Boolean).join(", ");
+  const st = $("lc-status"); st.className = "status " + d.status; st.textContent = d.status;
+  $("lc-cpu").textContent = pct(m.cpu_pct);
+  $("lc-mem").textContent = pct(m.mem_pct); $("lc-memt").className = "track " + level("mem_pct", m.mem_pct);
+  $("lc-memt").firstElementChild.style.width = Math.min(m.mem_pct || 0, 100) + "%";
+  $("lc-disk").textContent = pct(m.disk_pct); $("lc-diskt").className = "track " + level("disk_pct", m.disk_pct);
+  $("lc-diskt").firstElementChild.style.width = Math.min(m.disk_pct || 0, 100) + "%";
+  $("lc-seen").textContent = "Last report " + ago(d.last_seen) + ". Updates every 5 seconds.";
+  try {
+    const hist = await api(`/metrics/${d.id}?minutes=10`);
+    const pts = hist.filter((r) => r.cpu_pct != null);
+    const svg = $("lc-spark");
+    if (pts.length < 2) { svg.innerHTML = ""; return; }
+    const t0 = new Date(pts[0].ts).getTime(), t1 = Math.max(new Date(pts.at(-1).ts).getTime(), t0 + 1);
+    const top = Math.max(10, ...pts.map((p) => p.cpu_pct)) * 1.15;
+    const X = (t) => (t - t0) / (t1 - t0) * 400, Y = (v) => 92 - v / top * 86;
+    const line = pts.map((p, i) => `${i ? "L" : "M"}${X(new Date(p.ts).getTime()).toFixed(1)},${Y(p.cpu_pct).toFixed(1)}`).join("");
+    svg.innerHTML = `<path d="${line} L400,96 L0,96 Z" fill="var(--accent-soft)"/>
+      <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`;
+  } catch (e) {}
+}
+
+// ── device list + detail ─────────────────────────────────────────────────────
+function devTag(d) {
+  if (isDemo() && isShowcase(d)) return '<span class="tag live">Live server</span>';
+  if (isMine(d)) return '<span class="tag yours">Yours</span>';
+  if (d.workspace_id && isAdmin()) return '<span class="tag">Visitor</span>';
+  return d.mode === "agentless" ? '<span class="tag">SSH</span>' : "";
+}
+function renderDevList() {
+  const el = $("devlist");
+  const items = S.devices.map((d) => `<button type="button" data-id="${d.id}" aria-current="${d.id === S.selected}">
+      <span class="dn">${esc(deviceLabel(d))}</span>
+      <span class="dm"><span class="status ${esc(d.status)}">${esc(d.status)}</span>${devTag(d)}</span></button>`).join("");
+  const add = isDemo() ? `<button type="button" class="add" id="devlist-add"><span class="dn">+ Add your computer</span><span class="dm">One command, about a minute</span></button>` : "";
+  el.innerHTML = items + add;
+  el.querySelectorAll("button[data-id]").forEach((b) => (b.onclick = () => { S.selected = b.dataset.id; renderDevList(); renderDetail(); }));
+  const a = $("devlist-add"); if (a) a.onclick = goAdd;
+  $("dev-empty").classList.toggle("hide", S.devices.length > 0);
+  $("dev-empty").textContent = isDemo() ? "The live server hasn't reported yet. It appears within a minute of the server starting." :
+    "No devices yet. Start an agent, or add an SSH host below.";
+}
+
+let lastDetailId = null;
+async function renderDetail() {
+  const d = S.devices.find((x) => x.id === S.selected);
+  $("dev-detail").classList.toggle("hide", !d);
+  if (!d) return;
+  const changed = lastDetailId !== d.id; lastDetailId = d.id;
+  $("d-name").textContent = deviceLabel(d);
+  const meta = [d.distro || d.os, d.arch, d.mode === "agentless" ? `SSH ${d.ssh_user}@${d.ip_address}:${d.ssh_port}` : null].filter(Boolean);
+  $("d-meta").textContent = meta.join(", ") || "Waiting for its first report";
+  const st = $("d-status"); st.className = "status " + d.status; st.textContent = d.status;
+  $("d-remove").classList.toggle("hide", !(isAdmin() || isMine(d)));
+  const canShell = isAdmin() && !d.workspace_id;
+  $("shellform").classList.toggle("hide", !canShell);
+  const agentDevice = d.mode === "agent";
+  $("actbtns").classList.toggle("hide", !agentDevice);
+  $("d-hint").textContent = !agentDevice ? "SSH hosts run shell commands." :
+    isDemo() && isShowcase(d) ? "These actions are built into the agent and only read information. This one runs on the live server." :
+    "These actions are built into the agent and only read information.";
+  $("actbtns").querySelectorAll("button").forEach((b) => (b.disabled = !!S.running));
+  if (changed) { setJourney(null); $("term").textContent = ""; }
+  try {
+    const [hist, cmds] = await Promise.all([api(`/metrics/${d.id}?minutes=60`), api(`/commands/${d.id}`)]);
+    document.querySelectorAll(".chart").forEach((el) => drawChart(el, hist));
+    renderHistory(cmds);
+  } catch (e) {}
+}
+
+function renderActions() {
+  $("actbtns").innerHTML = S.actions.map((a) => `<button type="button" data-cmd="${esc(a.command)}">${esc(a.label)}</button>`).join("");
+  $("actbtns").querySelectorAll("button").forEach((b) => (b.onclick = () => runCommand(b.dataset.cmd)));
+}
+function renderHistory(cmds) {
+  $("history").classList.toggle("hide", !cmds.length);
+  $("hist").innerHTML = cmds.slice(0, 8).map((c) => `<li><span class="c">${esc(labelFor(c.command))}</span>
+     <span class="badge ${esc(c.status)}">${esc(c.status)}</span><span class="tiny">${ago(c.created_at)} by ${esc(c.created_by || "?")}</span></li>`).join("");
+}
+const labelFor = (cmd) => { const a = S.actions.find((x) => x.command === cmd); return a ? a.label : cmd; };
+
+// ── the command journey ──────────────────────────────────────────────────────
+function setJourney(cmd, device) {
+  const stages = { saved: $("journey").children[0], sent: $("journey").children[1], done: $("journey").children[2] };
+  const set = (el, cls, sub) => { el.className = "stage " + cls; el.querySelector("span").textContent = sub || " "; };
+  if (!cmd) { set(stages.saved, "off", "Waiting for a command"); set(stages.sent, "off"); set(stages.done, "off"); return; }
+  const ms = (a, b) => (a && b ? Math.max(0, new Date(b) - new Date(a)) : null);
+  const fmt = (v) => (v == null ? "" : v < 1000 ? `${v} ms` : `${(v / 1000).toFixed(1)} s`);
+  set(stages.saved, "on", "Stored in the database first");
+  if (cmd.status === "pending") {
+    const offline = device && device.status !== "online";
+    set(stages.sent, "wait", offline ? "Device offline: it gets this when it reconnects" : "Sending over the WebSocket…");
+    set(stages.done, "off");
+  } else {
+    set(stages.sent, "on", "Over the WebSocket, " + fmt(ms(cmd.created_at, cmd.delivered_at)));
+    if (cmd.status === "delivered") set(stages.done, "wait", "Running on the device…");
+    else set(stages.done, cmd.status === "executed" ? "on" : "fail",
+      (cmd.status === "executed" ? "Exit code 0, " : `Failed, exit code ${cmd.exit_code ?? "?"}, `) + fmt(ms(cmd.created_at, cmd.executed_at)) + " in total");
+  }
+}
+async function runCommand(command) {
+  const d = S.devices.find((x) => x.id === S.selected);
+  if (!d || S.running) return;
+  S.running = command;
+  $("actbtns").querySelectorAll("button").forEach((b) => (b.disabled = true));
+  $("term").innerHTML = `<span class="cmdline">${esc(d.hostname)}$ ${esc(command)}</span>\n`;
+  try {
+    let cmd = await api(`/commands/${d.id}`, { method: "POST", json: { command, idempotency_key: crypto.randomUUID ? crypto.randomUUID() : undefined } });
+    setJourney(cmd, d);
+    const until = Date.now() + 60000;
+    while (!["executed", "failed"].includes(cmd.status) && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 600));
+      const list = await api(`/commands/${d.id}`);
+      cmd = list.find((x) => x.id === cmd.id) || cmd;
+      setJourney(cmd, S.devices.find((x) => x.id === d.id));
+    }
+    if (["executed", "failed"].includes(cmd.status)) $("term").innerHTML += esc(cmd.result || "(no output)");
+    else $("term").innerHTML += esc("Still waiting. The command stays queued and runs when the device reconnects.");
+    renderDetail();
+  } catch (e) {
+    setJourney(null);
+    $("term").innerHTML += esc(e.message);
+  } finally {
+    S.running = null;
+    $("actbtns").querySelectorAll("button").forEach((b) => (b.disabled = false));
+  }
+}
+$("shellform").onsubmit = (e) => { e.preventDefault(); const v = $("shellin").value.trim(); if (v) { runCommand(v); $("shellin").value = ""; } };
+$("d-remove").onclick = async () => {
+  const d = S.devices.find((x) => x.id === S.selected);
+  if (!d || !confirm(`Remove ${d.hostname} and its history?`)) return;
+  try { await api(`/devices/${d.id}`, { method: "DELETE" }); S.selected = null; refresh(); } catch (e) { toast(e.message); }
+};
+
+// ── charts: one series each (named by the title), hover crosshair + tooltip ─
+function drawChart(el, rows) {
+  const metric = el.dataset.metric, svg = el.querySelector("svg"), tip = el.querySelector(".tip");
+  const W = 300, H = 92, L = 22, R = 4, T = 4, B = 4;
+  const pts = rows.filter((r) => r[metric] != null).map((r) => ({ t: new Date(r.ts).getTime(), v: r[metric] }));
+  el.querySelector("[data-now]").textContent = pts.length ? pct(pts.at(-1).v) : "";
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("preserveAspectRatio", "none");
+  const y = (v) => T + (H - T - B) * (1 - v / 100);
+  let grid = [0, 50, 100].map((g) => `<line x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)" vector-effect="non-scaling-stroke"/>
+      <text x="${L - 4}" y="${y(g) + 3}" text-anchor="end" font-size="9" fill="var(--ink-3)">${g}</text>`).join("");
+  grid += `<line x1="${L}" x2="${W - R}" y1="${y(THRESH[metric][0])}" y2="${y(THRESH[metric][0])}" stroke="var(--warn)" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`;
+  if (pts.length < 2) { svg.innerHTML = grid + `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="11" fill="var(--ink-3)">Collecting data…</text>`; svg.onmousemove = null; return; }
+  const t0 = pts[0].t, t1 = Math.max(pts.at(-1).t, t0 + 1);
+  const x = (t) => L + (W - L - R) * (t - t0) / (t1 - t0);
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  svg.innerHTML = grid + `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+     <line class="xh" y1="${T}" y2="${H - B}" stroke="var(--ink-3)" visibility="hidden" vector-effect="non-scaling-stroke"/>`;
+  const xh = svg.querySelector(".xh");
+  svg.onmousemove = (e) => {
+    const box = svg.getBoundingClientRect(), px = (e.clientX - box.left) / box.width * W;
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(x(p.t) - px) < Math.abs(x(best.t) - px)) best = p;
+    xh.setAttribute("x1", x(best.t)); xh.setAttribute("x2", x(best.t)); xh.setAttribute("visibility", "visible");
+    tip.style.display = "block";
+    tip.innerHTML = `<b>${best.v.toFixed(1)}%</b> <span class="tiny">${new Date(best.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
+    tip.style.left = Math.min(Math.max(x(best.t) / W * box.width - tip.offsetWidth / 2, 0), box.width - tip.offsetWidth) + "px";
+    tip.style.top = "18px";
+  };
+  svg.onmouseleave = () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); };
+}
+
+// ── fleet table + alerts ─────────────────────────────────────────────────────
+function renderFleet() {
+  $("fleet").innerHTML = S.devices.length ? S.devices.map((d) => { const m = d.latest || {}; return `<tr data-id="${d.id}">
+      <td><b>${esc(deviceLabel(d))}</b> ${devTag(d)}</td>
+      <td><span class="status ${esc(d.status)}">${esc(d.status)}</span></td>
+      <td class="col-os">${esc(d.distro || d.os || "–")}</td>
+      <td>${bar("cpu_pct", m.cpu_pct)}</td><td>${bar("mem_pct", m.mem_pct)}</td><td>${bar("disk_pct", m.disk_pct)}</td>
+      <td class="col-seen">${ago(d.last_seen)}</td></tr>`; }).join("")
+    : `<tr><td colspan="7" class="empty">No devices yet.</td></tr>`;
+  $("fleet").querySelectorAll("tr[data-id]").forEach((tr) => (tr.onclick = () => {
+    S.selected = tr.dataset.id; renderDevList(); renderDetail();
+    $("bench-section").scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+}
+function renderAlerts(alerts) {
+  const names = Object.fromEntries(S.devices.map((d) => [d.id, d.hostname]));
+  $("alerts").innerHTML = alerts.length ? alerts.map((a) => `<li><span class="badge ${esc(a.severity)}">${esc(a.severity)}</span>
+      <b>${esc(names[a.device_id] || "device")}</b> ${a.metric === "offline" ? "is not reporting" :
+        `${esc(a.metric.replace("_pct", ""))} at ${Math.round(a.value)}% (threshold ${a.threshold}%)`}
+      <span class="tiny">since ${ago(a.opened_at)}</span></li>`).join("")
+    : `<li class="muted">No open alerts. They open when CPU, memory or disk crosses a threshold, or a device stops reporting.</li>`;
+}
+
+// ── add your computer (public demo) ─────────────────────────────────────────
+function detectOS() {
+  const ua = navigator.userAgent;
+  return /Windows/i.test(ua) ? "win" : /Mac/i.test(ua) ? "mac" : "linux";
+}
+function goAdd() {
+  $("add-section").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!S.demo) $("add-go").focus({ preventScroll: true });
+}
+function resetAddFlow() {
+  $("add-start").classList.remove("hide"); $("add-flow").classList.add("hide");
+  S.knownMine = new Set();
+}
+function showAddFlow() {
+  if (!S.demo) return resetAddFlow();
+  $("add-start").classList.add("hide"); $("add-flow").classList.remove("hide");
+  setOS(store.get("fleet_os") || detectOS());
+  const end = new Date(S.demo.expires_at);
+  $("expiry-li").textContent = `Your sandbox ends at ${end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} and its data is deleted.`;
+}
+function setOS(os) {
+  store.set("fleet_os", os);
+  document.querySelectorAll(".ostabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.os === os)));
+  const open = {
+    mac: "Open <b>Terminal</b>: press Cmd+Space, type Terminal, press Enter.",
+    linux: "Open a terminal.",
+    win: "Open <b>PowerShell</b>: press the Windows key, type PowerShell, press Enter.",
+  }[os];
+  $("step-open").innerHTML = open;
+  $("cmd-text").textContent = S.demo ? (os === "win" ? S.demo.install.windows : S.demo.install.unix) : "";
+  $("req-li").innerHTML = {
+    mac: 'Python 3.9 or newer. If Terminal says it\'s missing, run <code>xcode-select --install</code> or get it from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org</a>.',
+    linux: "Python 3.9 or newer with venv (Ubuntu: <code>sudo apt install python3-venv</code>).",
+    win: 'Python 3.9 or newer from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org</a> (tick “Add python.exe to PATH”) or <code>winget install Python.Python.3.12</code>.',
+  }[os];
+}
+document.querySelectorAll(".ostabs button").forEach((b) => (b.onclick = () => setOS(b.dataset.os)));
+$("copy-btn").onclick = async () => {
+  const text = $("cmd-text").textContent;
+  try { await navigator.clipboard.writeText(text); $("copy-btn").textContent = "Copied"; }
+  catch (e) { const r = document.createRange(); r.selectNodeContents($("cmd-text")); getSelection().removeAllRanges(); getSelection().addRange(r); $("copy-btn").textContent = "Press Ctrl+C"; }
+  setTimeout(() => ($("copy-btn").textContent = "Copy"), 2500);
+};
+$("add-go").onclick = async () => {
+  $("add-err").textContent = ""; $("add-go").disabled = true;
+  try {
+    S.demo = await api("/demo/sessions", { method: "POST" });
+    store.set("fleet_demo_session", S.demo);
+    S.me = await api("/auth/whoami");
+    showAddFlow(); refresh();
+  } catch (e) { $("add-err").textContent = e.message; }
+  finally { $("add-go").disabled = false; }
+};
+function watchMyDevice() {
+  if (!S.demo || S.me.kind !== "demo") return;
+  const mine = S.devices.filter(isMine);
+  const online = mine.filter((d) => d.status === "online");
+  const dot = $("waitline").querySelector(".dot");
+  if (online.length) {
+    dot.classList.add("ok");
+    $("waittext").textContent = `${online.map((d) => d.hostname).join(", ")} ${online.length > 1 ? "are" : "is"} connected. Try an action on it above.`;
+  } else {
+    dot.classList.remove("ok");
+    $("waittext").textContent = mine.length ? "Your computer is offline. Run the command again to reconnect." : "Waiting for your computer…";
+  }
+  for (const d of online) if (!S.knownMine.has(d.id)) {
+    S.knownMine.add(d.id);
+    if (S.knownMine.size === 1 || S.selected == null) { S.selected = d.id; renderDevList(); renderDetail(); toast(`${d.hostname} connected.`); }
+  }
+}
+
+// ── owner sign-in ────────────────────────────────────────────────────────────
+let setupMode = false;
+async function openSignin(required) {
+  const st = await api("/auth/status").catch(() => ({ setup_required: false }));
+  setupMode = !!st.setup_required;
+  $("signin-title").textContent = setupMode ? "Create the admin account" : "Sign in";
+  $("signin-sub").textContent = setupMode ? "First run: this account becomes the fleet admin." :
+    isDemo() ? "For the owner of this deployment. Visitors don't need an account." : "";
+  $("signin-btn").textContent = setupMode ? "Create account" : "Sign in";
+  $("signin-cancel").classList.toggle("hide", !!required);
+  $("signin").classList.remove("hide"); $("u").focus();
+}
+$("signin-link").onclick = () => openSignin(false);
+$("signin-cancel").onclick = () => $("signin").classList.add("hide");
+$("signin-form").onsubmit = async (e) => {
+  e.preventDefault(); $("signin-err").textContent = "";
+  const username = $("u").value.trim(), password = $("p").value;
+  try {
+    if (setupMode) await api("/auth/register", { method: "POST", json: { username, password } });
+    const res = await fetch(API + "/auth/token", { method: "POST", body: new URLSearchParams({ username, password }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Sign-in failed");
+    S.adminToken = data.access_token; store.set("fleet_admin_token", S.adminToken);
+    $("signin").classList.add("hide"); $("p").value = "";
+    await boot(true);
+  } catch (err) { $("signin-err").textContent = err.message; }
+};
+$("signout").onclick = () => { S.adminToken = null; store.del("fleet_admin_token"); boot(true); };
+
+// ── cost calculator ──────────────────────────────────────────────────────────
+function calc() {
+  const n = +$("c-dev").value || 0, m = +$("c-met").value || 0, host = +$("c-host").value || 0;
+  const cw = n * m * 0.30, save = Math.max(cw - host, 0);
+  const usd = (v) => "$" + Math.round(v).toLocaleString();
+  $("c-cw").textContent = usd(cw); $("c-self").textContent = usd(host);
+  $("c-save").textContent = cw > 0 ? `${usd(save)} (${Math.round(save / cw * 100)}%)` : "$0";
+}
+["c-dev", "c-met", "c-host"].forEach((id) => ($(id).oninput = calc));
+
+// ── boot ─────────────────────────────────────────────────────────────────────
+$("cta-run").onclick = () => {
+  const d = S.devices.find(isShowcase); if (d) { S.selected = d.id; renderDevList(); renderDetail(); }
+  $("bench-section").scrollIntoView({ behavior: "smooth", block: "start" });
+};
+$("cta-add").onclick = goAdd;
+
+async function boot(skipWake) {
+  if (!skipWake) S.health = await waitForServer();
+  else S.health = await api("/health");
+  $("api-docs").href = (API || "") + "/docs";
+  $("agent-src").href = (API || "") + "/agent.py";
+  const demo = isDemo();
+  ["hero", "add-section", "how-section"].forEach((id) => $(id).classList.toggle("hide", !demo));
+  $("brand-sub").textContent = demo ? "live demo" : "";
+  document.title = demo ? "Linux Fleet Manager — live demo" : "Linux Fleet Manager";
+  if (demo && S.health.demo_session_minutes) $("ttl").textContent = S.health.demo_session_minutes;
+
+  try { S.me = await api("/auth/whoami"); }
+  catch (e) {
+    if (!demo) { S.me = { kind: "anonymous" }; return openSignin(true); }
+    S.me = { kind: "anonymous" };
+  }
+  if (S.me.kind !== "demo" && !S.adminToken) { S.demo = null; store.del("fleet_demo_session"); }
+  const signedIn = S.me.kind === "admin" || S.me.kind === "viewer";
+  $("who").textContent = signedIn ? `${S.me.username} (${S.me.kind})` : "";
+  $("signin-link").classList.toggle("hide", signedIn);
+  $("signout").classList.toggle("hide", !signedIn);
+
+  $("bench-title").textContent = demo ? "Try it" : "Devices";
+  $("bench-intro").textContent = demo ? "Pick a device and run one of its built-in actions. Watch the command go from this page to the device and back." :
+    "Pick a device to see its charts and run commands on it.";
+  $("fleet-intro").textContent = demo ? (S.me.kind === "demo" ? "The live server plus the computers in your sandbox, refreshed every 5 seconds." :
+    "The live server, refreshed every 5 seconds. Computers you add appear here too, visible only to you.") :
+    "Every device, refreshed every 5 seconds.";
+  $("owner-add").classList.toggle("hide", demo && !isAdmin());
+  $("ssh-form").classList.toggle("hide", !(isAdmin() && ["agentless", "hybrid"].includes(S.health.mode)));
+  $("owner-agent-cmd").textContent = `pip install -r agent/requirements.txt\npython agent/agent.py --server ${API || location.origin} --token <AGENT_TOKEN from .env>`;
+  $("owner-agent-cmd").parentElement.classList.toggle("hide", S.health.mode === "agentless");
+  if (demo) (S.demo && S.me.kind === "demo") ? showAddFlow() : resetAddFlow();
+
+  S.actions = await api("/commands").catch(() => []);
+  renderActions(); calc();
+  await refresh().catch((e) => toast(e.message));
+  schedule();
+}
+$("ssh-form").onsubmit = async (e) => {
+  e.preventDefault(); $("ssh-err").textContent = "";
+  try {
+    await api("/devices/agentless", { method: "POST", json: { hostname: $("s-host").value.trim(), ip_address: $("s-ip").value.trim(),
+      ssh_user: $("s-user").value.trim(), ssh_port: Number($("s-port").value) } });
+    e.target.reset(); $("s-port").value = 22; refresh();
+  } catch (err) { $("ssh-err").textContent = err.message; }
+};
+boot();
+</script>
+</body>
+</html>

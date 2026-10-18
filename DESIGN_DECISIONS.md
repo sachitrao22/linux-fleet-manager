@@ -112,3 +112,41 @@ SQLAlchemy by default expires all object attributes after commit, causing surpri
 SELECT queries when fields are read afterwards (and errors in async code). With
 `expire_on_commit=False` objects keep their values; `db.refresh()` is used when the
 database's current state is needed.
+
+## Public demo: letting strangers touch a remote-execution system safely
+A fleet manager's core feature is running commands on other people's machines, which is
+exactly what a public demo must not allow. The design:
+- **Who's calling is always one of four principals** (admin, viewer, demo visitor, anonymous),
+  resolved in `routers/deps.py`. Every query is filtered through `device_scope()`, so visibility
+  is enforced in SQL rather than remembered in each endpoint. A device you can't see returns
+  404, not 403, so its existence doesn't leak.
+- **Sandboxes (workspaces).** "Add my device" creates a workspace with its own agent token,
+  expiring after 60 minutes. The token decides where a device belongs. A sandbox token can't
+  re-register or open a WebSocket for a device in another workspace (checked on both paths).
+  Caps: 3 devices per sandbox, 100 overall, 6 new sandboxes per IP per hour.
+- **Read-only actions instead of shell.** `@uptime`, `@disk`, `@top`… are Python functions in
+  the agent (psutil), not shell strings. The **server** only accepts them from visitors, and
+  the **agent** started with `--safe` refuses anything else. That's defense in depth: even a
+  compromised server can't run arbitrary code on a visitor's laptop. Nobody gets shell on a
+  sandbox device, not even the admin.
+- **No admin bootstrap in demo mode.** "First account becomes admin" is fine on a private
+  install and fatal on a public URL. The admin comes from `ADMIN_USERNAME`/`ADMIN_PASSWORD`.
+- **Expiry is enforced three ways:** the session JWT expires with the sandbox; registration
+  returns 410; and a cleanup loop closes the agent's socket with close code 4410 (the agent
+  exits with a friendly message) and deletes the sandbox's devices, whose metrics, commands
+  and alerts cascade.
+- **The showcase device** is the API host itself, running a `--safe` agent. Free hosts wipe the
+  disk on restart, so the agent can't remember its id; the owner token may pin one
+  (`SHOWCASE_DEVICE_ID`), keeping one device and its history across restarts.
+- **Rate limits are in memory**: correct for one process, and the demo runs one. Several
+  processes would need Redis, the same limit as the WebSocket registry.
+
+## Hosting split: Vercel for the page, Render for the API, Neon for data
+The API needs a long-lived process: agents hold WebSockets, and background loops mark silent
+devices offline and delete expired sandboxes. Serverless functions end connections at their
+time limit and share no memory, so the API runs on Render's free web service. The dashboard
+is a static page (`web/`) whose only configuration is the API URL in `config.js`. Served by the
+API itself, a `/config.js` route returns an empty URL, meaning same origin. CORS is an allow-list
+(`CORS_ORIGINS`) with Bearer tokens instead of cookies, so credentials stay off. Neon replaces
+Render's free Postgres, which expires after 30 days. `database.py` accepts the provider's
+`postgres://…?sslmode=require` URL as-is and translates it for asyncpg.

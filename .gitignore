@@ -11,3 +11,4 @@ __pycache__/
 fleet.db
 fleet.db-*
 hosts.yaml
+venv
